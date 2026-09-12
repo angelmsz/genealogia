@@ -87,6 +87,15 @@ EDAD_MAXIMA_EVENTO = 90        # matrimonio/mención: <=90 años de vida
 # casan con ninguna ficha conocida (líneas por apellido).
 VENTANA_GENERACION = 90        # años alrededor de la ventana de la línea
 
+# v10.4 (M1) — ventana biológica padre-hijo / madre-hijo para certificar a
+# una persona nueva por sus DOS progenitores confirmados. Es ESPEJO de los
+# límites de agent/fase2.py (MIN_ANIOS_ENTRE_GENERACIONES = 13,
+# MAX_ANIOS_MADRE_HIJO = 55 y el tope "absurdo" de 80 del padre): aquí no
+# se pueden importar porque fase2 importa este módulo.
+MIN_ANIOS_PADRE_HIJO = 13
+MAX_ANIOS_PADRE_HIJO = 80
+MAX_ANIOS_MADRE_HIJO = 55
+
 RE_ANIO = re.compile(r"\b(1[4-9]\d{2}|20\d{2})\b")
 
 
@@ -260,6 +269,112 @@ def _dato_relacionados(h: dict, p: dict) -> str | None:
 
 # ============================== CLASIFICADOR ================================
 
+# --------- v10.4 (M1): DOS PROGENITORES CONFIRMADOS -------------------------
+# Hasta la v10.3 el árbol SOLO crecía hacia arriba: cometer_confirmaciones
+# creaba fichas nuevas únicamente como stubs de padre/madre de alguien ya
+# conocido. Un HERMANO (o cualquier colateral que no fuese progenitor)
+# quedaba atrapado en personas_nuevas_candidatas para siempre, aunque su
+# partida estuviese verificada y nombrase a sus dos progenitores, que ya
+# estaban confirmados en el árbol. Estas funciones implementan la regla
+# determinista que lo desbloquea (nunca la decide el LLM).
+#
+# Los dos datos independientes son el PADRE y la MADRE nombrados en el
+# documento: ninguno depende del nombre del nuevo, así que cumplen la regla
+# de método (>=2 datos independientes) igual que el nombre+fecha de alguien
+# ya conocido. Guards: (1) la pareja debe ser biológicamente compatible con
+# el año del evento cuando se conocen los años de los progenitores; (2)
+# nunca se adivina con candidatos ambiguos (los detecta el extractor
+# tolerante del commit).
+
+def _progenitor_confirmado(nombre: str, personas: list[dict]) -> dict | None:
+    """Ficha que casa con `nombre` y tiene EVIDENCIA documental (el mismo
+    criterio de 'confirmada' que usa calcular_frontera: p['evidencias']).
+    None si no casa, si hay tocayos sin poder desambiguar o si solo es
+    memoria familiar (sin evidencias)."""
+    if not (nombre or "").strip():
+        return None
+    p = emparejar_persona(nombre, personas, avisar=False,
+                          contexto="evidencia:progenitor")
+    if p is None:
+        return None
+    return p if p.get("evidencias") else None
+
+
+def progenitores_confirmados(h: dict, familia: dict) -> tuple[dict, dict] | None:
+    """v10.4 (M1/M1b) — (ficha_padre, ficha_madre) si `h` es el nacimiento,
+    bautismo o MATRIMONIO de una persona AUSENTE del árbol y el documento
+    nombra a sus DOS progenitores, AMBOS fichas conocidas con evidencia
+    documental.
+
+    Devuelve None en cualquier otro caso: entonces el hallazgo se clasifica
+    como siempre (candidato_fuerte o coincidencia_debil).
+
+    v10.4 (M1b): las partidas de MATRIMONIO nombran a los padres de los
+    contrayentes igual que un bautismo (el informe de metodología lo dice:
+    las partidas de matrimonio recogen contrayentes, padres, abuelos,
+    padrinos y testigos). Un hijo/a CASADO es la vía natural de la línea
+    troncal, así que la misma regla de dos datos se aplica. Si el documento
+    nombra a los padres de LOS DOS contrayentes, el extractor devuelve dos
+    candidatos distintos para el mismo rol y NO se confirma nada (nunca se
+    adivina): el guardarraíl de siempre protege este caso.
+
+    Reutiliza el extractor TOLERANTE de otros_nombres del commit
+    (agent/frontera.py::_extraer_progenitor: formato 'Nombre (padre)' y
+    'hijo de X y Y', y nunca adivina si hay dos candidatos distintos). El
+    import es DIFERIDO porque agent/frontera.py importa este módulo al
+    cargarse (arriba sería circular).
+
+    OJO para el llamador del commit: las fichas devueltas son COPIAS
+    (config._limpiar_claves); para MUTAR una ficha real hay que volver a
+    emparejarla contra la lista de personas propia.
+    """
+    if (h.get("tipo_evento") or "").strip().lower() not in (
+            "nacimiento", "bautismo", "bautizo",
+            "matrimonio", "boda", "casamiento"):
+        return None
+    personas = [_limpiar_claves(p) for p in (familia or {}).get("personas", [])]
+    if not personas:
+        return None
+    from agent.frontera import _extraer_progenitor  # diferido: ver docstring
+    otros = h.get("otros_nombres") or []
+    cita = h.get("cita_literal") or ""
+    f_padre = _progenitor_confirmado(
+        _extraer_progenitor(otros, "padre", cita_literal=cita), personas)
+    f_madre = _progenitor_confirmado(
+        _extraer_progenitor(otros, "madre", cita_literal=cita), personas)
+    if f_padre is None or f_madre is None:
+        return None
+    if normalizar(f_padre.get("nombre", "")) == normalizar(
+            f_madre.get("nombre", "")):
+        return None   # el mismo nombre en los dos roles: no son dos datos
+    return f_padre, f_madre
+
+
+def _choque_biologico_progenitores(anio_evento: int | None, f_padre: dict,
+                                   f_madre: dict) -> str | None:
+    """Motivo (texto) si el año del EVENTO (nacimiento, bautismo o boda del
+    hijo/a) es IMPOSIBLE para el año conocido de alguno de sus dos
+    progenitores. None si no hay choque o si no hay años con los que
+    comprobar: la falta de datos NO veta (misma política que la v4.2 en la
+    plausibilidad). La ventana [13, 80] / [13, 55] vale igual para una boda
+    (una persona se casa siendo adulta, así que la diferencia siempre es
+    mayor que para un nacimiento: el mínimo es conservador a propósito)."""
+    if anio_evento is None:
+        return None
+    for ficha, rol, minimo, maximo in (
+            (f_padre, "padre", MIN_ANIOS_PADRE_HIJO, MAX_ANIOS_PADRE_HIJO),
+            (f_madre, "madre", MIN_ANIOS_PADRE_HIJO, MAX_ANIOS_MADRE_HIJO)):
+        anio_prog = anio_persona(ficha)
+        if anio_prog is None:
+            continue
+        edad = anio_evento - anio_prog
+        if edad < minimo or edad > maximo:
+            return (f"el año del evento ({anio_evento}) es imposible para su "
+                    f"{rol} '{ficha.get('nombre', '')}' (n. {anio_prog}): "
+                    f"{edad} años de diferencia")
+    return None
+
+
 def clasificar_hallazgo(h: dict, familia: dict) -> dict:
     """Clasifica UN hallazgo y le añade en sitio:
       - "nivel_evidencia": confirmado | candidato_fuerte | coincidencia_debil
@@ -339,6 +454,39 @@ def clasificar_hallazgo(h: dict, familia: dict) -> dict:
                     "dato verificable lo corrobora (hace falta fecha, lugar, "
                     "padres o cónyuge que casen)")
     else:
+        # ---- v10.4 (M1): persona NUEVA con DOS PROGENITORES CONFIRMADOS --
+        # (ver progenitores_confirmados). Es la vía por la que entran los
+        # HERMANOS: la frontera tipo 'hermanos' existe desde la v4.0, pero
+        # sin esta regla su cosecha natural —los hermanos— no podía
+        # certificarse nunca.
+        pareja = progenitores_confirmados(h, familia)
+        if pareja is not None:
+            f_padre, f_madre = pareja
+            choque = _choque_biologico_progenitores(anio_h, f_padre, f_madre)
+            if choque is None:
+                nom_padre = f_padre.get("nombre", "")
+                nom_madre = f_madre.get("nombre", "")
+                h["nivel_evidencia"] = NIVEL_CONFIRMADO
+                h["datos_que_casan"] = [
+                    f"padre '{nom_padre}': ficha conocida y confirmada "
+                    f"(evidencia documental), nombrada en el documento",
+                    f"madre '{nom_madre}': ficha conocida y confirmada "
+                    f"(evidencia documental), nombrada en el documento",
+                ]
+                h["justificacion_evidencia"] = (
+                    "persona nueva con los DOS progenitores ya confirmados: "
+                    "dos datos independientes (padre y madre) que no dependen "
+                    "de su nombre"
+                    + (f"; año del evento {anio_h} dentro de la ventana "
+                       f"biológica de la pareja" if anio_h is not None else
+                       "; sin año con el que comprobar (la falta de datos no "
+                       "veta, como en la plausibilidad v4.2)"))
+                return h
+            # Contradicción comprobable con las fechas: NO se confirma. Se
+            # sigue el camino normal (candidato_fuerte / coincidencia_debil)
+            # y el motivo queda por escrito para que sea auditable.
+            h["motivo_no_confirmado_por_progenitores"] = choque
+
         # Persona desconocida (nueva): ¿candidato fuerte o coincidencia débil?
         # Requisitos de candidato_fuerte: apellido compuesto completo +
         # municipio exacto + fecha coherente con la generación.

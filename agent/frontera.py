@@ -41,7 +41,7 @@ from agent.evidencia import (ETIQUETA_SECCION_CANDIDATO,
                              ETIQUETA_SECCION_CONFIRMADO,
                              ETIQUETA_SECCION_DEBIL, NIVEL_CANDIDATO_FUERTE,
                              NIVEL_COINCIDENCIA_DEBIL, NIVEL_CONFIRMADO,
-                             secciones_evidencia)
+                             progenitores_confirmados, secciones_evidencia)
 from utils import ui
 from utils.personas import asignar_ids, emparejar_persona, tokens_persona
 
@@ -547,6 +547,71 @@ def _progenitores_de_hijo_de(texto: str) -> list[tuple[str, str]]:
     return pares
 
 
+# ============ v10.4 (P1) — PADRINOS Y TESTIGOS (roles colaterales) ==========
+# El informe de metodología profesional es explícito: los padrinos de las
+# partidas suelen ser tíos, abuelos o vecinos, y "quienes comparten apellidos
+# con el padre o la madre son muy probablemente familiares directos", lo que
+# los convierte en pistas de primer orden para ramas colaterales.
+# El prompt de fase 2 YA pide estos roles en otros_nombres (config.py:
+# "...(abuelo), (abuela), (padrino), (madrina), (hijo), (hija), (testigo)")
+# y hasta la v10.4 el parser los ignoraba por completo: dato pagado (tokens
+# de extracción), dato tirado.
+# FILOSOFÍA (innegociable): un padrino/testigo NUNCA es un dato de filiación
+# y NUNCA cambia el nivel de evidencia de ningún hallazgo — sería parentesco
+# por apellido, justo lo prohibido. Son PISTAS: se convierten en candidatos
+# de la frontera (se investigan, no entran al árbol).
+ROLES_COLATERALES = ("padrino", "madrina", "testigo")
+
+
+def _patron_rol(roles: str | tuple[str, ...]) -> re.Pattern:
+    """Patrón 'Nombre Apellidos (rol)' de otros_nombres. `roles` admite un
+    rol o varios ALTERNATIVOS (p. ej. ('padrino', 'padrinos'), para no
+    depender de que el modelo use el singular). El GRUPO 1 es el nombre."""
+    if isinstance(roles, str):
+        roles = (roles,)
+    alternancia = "|".join(re.escape(r) for r in roles)
+    return re.compile(r"^\s*([^()]+?)\s*\((?:es\s+)?(?:su\s+)?(?:"
+                      + alternancia + r")\)", re.IGNORECASE)
+
+
+def _nombres_con_rol(otros_nombres: list,
+                     roles: str | tuple[str, ...]) -> list[str]:
+    """Nombres limpios y SIN repetir de las entradas 'Nombre (rol)' de
+    otros_nombres, en el orden en que aparecen."""
+    patron = _patron_rol(roles)
+    nombres: list[str] = []
+    for cand in otros_nombres or []:
+        m = patron.match((cand or "").strip())
+        if not m:
+            continue
+        limpio = _limpiar_candidato_progenitor(m.group(1))
+        if limpio and normalizar(limpio) not in {normalizar(x)
+                                                 for x in nombres}:
+            nombres.append(limpio)
+    return nombres
+
+
+def nombres_colaterales(h: dict) -> list[tuple[str, str]]:
+    """[(rol, nombre)] de los padrinos/madrinas/testigos que el documento
+    nombra en otros_nombres de un hallazgo. El rol vuelve SIEMPRE en
+    singular ('padrino' aunque el modelo escriba 'padrinos'), sin duplicados.
+
+    Solo se lee el formato CON etiqueta de rol: para un padrino no existe
+    ningún patrón tolerante fiable ('hijo de X y Y' habla de progenitores) y
+    adivinar aquí sería peor que no tener el dato."""
+    out: list[tuple[str, str]] = []
+    vistos: set[tuple[str, str]] = set()
+    otros = h.get("otros_nombres") or []
+    for rol in ROLES_COLATERALES:
+        for nombre in _nombres_con_rol(otros, (rol, rol + "s")):
+            clave = (rol, normalizar(nombre))
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            out.append((rol, nombre))
+    return out
+
+
 def _extraer_progenitor(otros_nombres: list, rol: str,
                         cita_literal: str = "") -> str:
     """'Nazario Merillas (padre)' -> 'Nazario Merillas' para rol='padre'.
@@ -562,16 +627,12 @@ def _extraer_progenitor(otros_nombres: list, rol: str,
     limpian de puntuación y basura antes de compararlos.
     """
     candidatos: list[str] = []
-    # 1) Formato canónico: "Nombre Apellidos (rol)".
-    patron_rol = re.compile(
-        r"^\s*([^()]+?)\s*\((?:es\s+)?(?:su\s+)?" + re.escape(rol) + r"\)",
-        re.IGNORECASE)
+    # 1) Formato canónico: "Nombre Apellidos (rol)". El patrón lo comparte
+    #    _patron_rol con los roles colaterales (v10.4/P1): UNA sola fuente
+    #    de verdad para el formato de otros_nombres.
     for cand in otros_nombres or []:
-        m = patron_rol.match((cand or "").strip())
-        if m:
-            limpio = _limpiar_candidato_progenitor(m.group(1))
-            if limpio:
-                candidatos.append(limpio)
+        for limpio in _nombres_con_rol([cand], rol):
+            candidatos.append(limpio)
     # 2) Formato tolerante: "hijo/hija de X y Y" en otros_nombres.
     for cand in otros_nombres or []:
         for padre, madre in _progenitores_de_hijo_de(cand or ""):
@@ -854,6 +915,142 @@ def cometer_confirmaciones(aplicar: bool = True) -> dict:
         if cambio:
             actualizadas += 1
 
+    # ---- v10.4 (M1): commit de las PERSONAS NUEVAS confirmadas ----------
+    # Hasta la v10.3 el árbol solo crecía de forma ASCENDENTE: cada ficha
+    # nueva nacía como stub de padre/madre de alguien ya conocido, así que
+    # un HERMANO (partida verificada, con sus dos progenitores ya
+    # confirmados) quedaba atrapado para siempre en
+    # personas_nuevas_candidatas. Aquí entran las que el clasificador
+    # DETERMINISTA marcó como "confirmado" por la regla de los DOS
+    # PROGENITORES (dos datos independientes: padre y madre), siempre que
+    # tengan hallazgo verificador con cita VERIFICADA. Si algo no cuadra se
+    # AVISA: nunca un descarte en silencio (filosofía de fallo explícito).
+    confirmados_arbol: set[str] = set()
+    if aplicar:
+        for candidata in (refinado.get("personas_nuevas_candidatas") or []):
+            if not isinstance(candidata, dict):
+                continue
+            if (candidata.get("nivel_evidencia") or "") != NIVEL_CONFIRMADO:
+                continue
+            nombre_nuevo = (candidata.get("nombre") or "").strip()
+            if not nombre_nuevo:
+                continue
+            clave_nuevo = normalizar(nombre_nuevo)
+            if clave_nuevo in por_nombre or emparejar_persona(
+                    nombre_nuevo, personas, avisar=False,
+                    contexto="commit:nueva") is not None:
+                confirmados_arbol.add(clave_nuevo)  # ya estaba: no se duplica
+                continue
+            h = None
+            for tipo_ev in ("nacimiento", "bautismo", "matrimonio"):
+                h = hallazgo_verificador(nombre_nuevo, tipo_ev)
+                if h is not None:
+                    break
+            if h is None:
+                ui.log_warn(
+                    f"COMMIT: '{nombre_nuevo}' está clasificada como "
+                    f"CONFIRMADA (dos progenitores) pero no encuentro su "
+                    f"hallazgo verificador (nacimiento, bautismo o "
+                    f"matrimonio) en {HALLAZGOS_JSON}: NO entra al árbol. "
+                    f"Revisa esa clasificación a mano.")
+                continue
+            pareja = progenitores_confirmados(h, familia)
+            if pareja is None:
+                ui.log_warn(
+                    f"COMMIT: '{nombre_nuevo}' está clasificada como "
+                    f"CONFIRMADA pero sus DOS progenitores ya no casan con "
+                    f"fichas confirmadas: NO entra al árbol (nunca se "
+                    f"adivina).")
+                continue
+            nombre_padre = (pareja[0].get("nombre") or "").strip()
+            nombre_madre = (pareja[1].get("nombre") or "").strip()
+            evidencia = {
+                "tipo": h.get("tipo_evento", ""),
+                "fecha": h.get("fecha_valor", ""),
+                "lugar": h.get("lugar", ""),
+                "fuente_url": (h.get("url_fuente")
+                               or candidata.get("fuente_url") or ""),
+                "cita": (h.get("cita_literal") or "")[:400],
+                "origen": h.get("origen", "web"),
+                "verificado": True,
+                "commit": datetime.now().isoformat(timespec="seconds"),
+            }
+            nacimiento: dict = {}
+            matrimonios: list[dict] = []
+            # v10.4 (M1b): cada evento va a SU sitio. La fecha de una BODA
+            # no es una fecha de nacimiento (el informe de metodología
+            # insiste en no mezclar eventos), así que el matrimonio se
+            # guarda en 'matrimonios' con la MISMA forma que usa el resto
+            # del commit, y 'nacimiento' solo se rellena con
+            # nacimientos/bautismos.
+            tipos_ev = _tipos_equivalentes(evidencia["tipo"])
+            if tipos_ev & {"nacimiento", "bautismo", "bautizo", "nacer"}:
+                if evidencia["fecha"]:
+                    nacimiento["fecha_aproximada"] = evidencia["fecha"]
+                if evidencia["lugar"]:
+                    nacimiento["municipio"] = evidencia["lugar"]
+            elif tipos_ev & {"matrimonio", "boda", "casamiento"}:
+                matrimonios.append({
+                    "tipo": "matrimonio",
+                    "fecha": evidencia["fecha"],
+                    "lugar": evidencia["lugar"],
+                    "fuente_url": evidencia["fuente_url"],
+                })
+            # Cónyuge nombrado en la partida ('(cónyuge)'): se lee con el
+            # lector de ROLES (no con _extraer_progenitor, cuyo formato
+            # tolerante 'hijo de X y Y' devolvería a la MADRE para
+            # cualquier rol que no sea 'padre'). Si hay varios candidatos
+            # distintos, no se adivina.
+            conyuges = _nombres_con_rol(h.get("otros_nombres") or [],
+                                        ("cónyuge", "conyuge", "esposo",
+                                         "esposa"))
+            nueva = {
+                "nombre": nombre_nuevo,
+                # los apellidos salen de los PROGENITORES ya confirmados
+                "apellido_paterno": (_apellido_de(nombre_padre)
+                                     or _apellido_de(nombre_nuevo)),
+                "apellido_materno": _apellido_de(nombre_madre),
+                "sexo": "",        # la filiación no implica el sexo del bebé
+                "nacimiento": nacimiento, "defuncion": {},
+                "matrimonios": matrimonios,
+                "padre": nombre_padre, "madre": nombre_madre,
+                "conyuge": conyuges[0] if len(conyuges) == 1 else "",
+                "hijos": [],
+                "notas": (f"Nombrado en su propia partida "
+                          f"({evidencia['tipo']}) con los DOS progenitores "
+                          f"ya confirmados ({nombre_padre} y {nombre_madre}): "
+                          f"entra al árbol por la regla de dos datos "
+                          f"independientes (v10.4/M1)."),
+                "estado": NIVEL_CONFIRMADO,
+                "evidencias": [dict(evidencia)],
+                "fuente": "partida_verificada",
+            }
+            personas.append(nueva)
+            por_nombre[clave_nuevo] = nueva
+            confirmados_arbol.add(clave_nuevo)
+            nuevas += 1
+            evidencias += 1
+            # v4.2 (punto 7): el registro append-only no se salta ni aquí
+            _registrar_evidencia_append_only(nueva, evidencia)
+            # El nuevo hermano entra en la lista 'hijos' de sus DOS padres:
+            # así los progenitores heredan municipio por sus hijos
+            # (_geo_persona) y el GEDCOM sale coherente.
+            for nombre_prog in (nombre_padre, nombre_madre):
+                ficha_prog = emparejar_persona(nombre_prog, personas,
+                                               avisar=False,
+                                               contexto="commit:hijos")
+                if ficha_prog is None:
+                    continue
+                hijos_prog = ficha_prog.get("hijos")
+                if not isinstance(hijos_prog, list):
+                    hijos_prog = []
+                    ficha_prog["hijos"] = hijos_prog
+                if nombre_nuevo not in hijos_prog:
+                    hijos_prog.append(nombre_nuevo)
+            ui.log_ok(f"COMMIT: ficha NUEVA '{nombre_nuevo}' como hijo/a de "
+                      f"{nombre_padre} y {nombre_madre} (2 datos "
+                      f"independientes verificados)")
+
     if aplicar and (evidencias or nuevas or actualizadas):
         # v4.2 (punto 7): backup con marca de tiempo + rotación (nunca una
         # única copia .bak que se machaca en la siguiente ejecución).
@@ -882,6 +1079,15 @@ def cometer_confirmaciones(aplicar: bool = True) -> dict:
     candidatos = [{"nombre": (c.get("nombre") or "").strip(),
                    "motivo": c.get("motivo", ""),
                    "fuente_url": c.get("fuente_url", ""),
+                   # v10.4 (P1): el municipio y el apellido viajan con el
+                   # candidato. El apellido lo usa calcular_frontera para
+                   # PRIORIZAR por rareza (antes llegaba siempre vacío: el
+                   # término 1.5*rareza_apellido() valía 0 para todo el
+                   # mundo); el municipio, para que la búsqueda del
+                   # candidato tenga localidad (padrinos y testigos salen
+                   # del mismo pueblo que la partida que los nombra).
+                   "municipio": c.get("municipio", ""),
+                   "apellido": c.get("apellido", ""),
                    # v9.1 (PARTE 0): el nivel de evidencia viaja con el
                    # candidato para que el informe de progreso y la frontera
                    # sepan si es una pista seria o ruido de apellido.
@@ -893,8 +1099,11 @@ def cometer_confirmaciones(aplicar: bool = True) -> dict:
         estado = cargar_estado()
         previos = {normalizar(c.get("nombre", ""))
                    for c in estado.get("candidatos", [])}
+        # v10.4 (M1): las personas nuevas que este commit acaba de meter en
+        # el árbol YA no son candidatas (ni lo eran ya si estaban dentro).
         nuevos_c = [c for c in candidatos
-                    if normalizar(c["nombre"]) not in previos]
+                    if normalizar(c["nombre"]) not in previos
+                    and normalizar(c["nombre"]) not in confirmados_arbol]
         if nuevos_c:
             estado.setdefault("candidatos", []).extend(nuevos_c)
             guardar_estado(estado)
@@ -1022,5 +1231,19 @@ def generar_informe_progreso(familia: dict | None = None,
         "Método (v9.1): cada generación se conecta con la siguiente "
         "mediante >=2 datos INDEPENDIENTES que coincidan; una coincidencia "
         "de apellido+geografía NUNCA es prueba de parentesco.\n")
+    # v10.4 (P3): sección de EVIDENCIA NEGATIVA (búsquedas infructuosas).
+    # Es lo que pide el informe de metodología profesional y lo que permite
+    # decidir dónde escribir/ir en persona sin repetir lo ya intentado.
+    # Degrada con elegancia: si el registro está vacío, la sección no se
+    # añade y el informe queda igual que siempre.
+    try:
+        from agent.evidencia_negativa import texto_markdown as _neg_md
+        bloque_neg = _neg_md()
+    except Exception as e:
+        bloque_neg = ""
+        ui.log_warn(f"sección de evidencia negativa no generada: "
+                    f"{str(e)[:80]}")
+    if bloque_neg:
+        contenido += "\n" + bloque_neg
     (BASE_DIR / INFORME_PROGRESO_MD).write_text(contenido, encoding="utf-8")
     ui.log_doc(f"Informe de progreso -> {INFORME_PROGRESO_MD}")
