@@ -37,6 +37,8 @@ import os
 import sys
 from pathlib import Path
 
+from utils import ui  # v10.4 (P0): registro de ejecución del menú
+
 BASE_DIR = Path(__file__).resolve().parent
 
 # Ficheros de salida que se vigilan para el resumen de "qué se ha generado"
@@ -792,6 +794,10 @@ def _despachar(eleccion: str, estado_chequeo: list) -> None:
 
 def main() -> None:
     _preparar_entorno()
+    # v10.4 (P0): registro de ejecución. El menú en sí no se registra (usa
+    # print), pero SÍ todo lo que hace el agente desde aquí dentro: fases,
+    # conectores, OCR, avisos y errores. El cierre lo garantiza atexit.
+    ui.iniciar_log()
     sin_chequeo = ("--sin-chequeo" in sys.argv
                    or os.getenv("LANZADOR_SIN_CHEQUEO") == "1")
     estado: list = [None]  # línea de resumen del chequeo (mutable, por ref)

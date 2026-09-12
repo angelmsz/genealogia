@@ -33,6 +33,12 @@ if str(RAIZ) not in sys.path:
 os.environ.setdefault("TAVILY_API_KEY", "clave-de-prueba")
 os.environ.setdefault("OPENROUTER_API_KEY", "clave-de-prueba")
 
+# v10.4 (P0) — los tests NUNCA escriben el registro de ejecución en el disco
+# del usuario: algunos tests llaman a main.main() (p. ej. el de --probar-ocr)
+# y sin esto dejarían ficheros en logs/. Se asigna (no setdefault) para que
+# valga aunque el entorno del usuario tenga LOG_AGENTE=true.
+os.environ["LOG_AGENTE"] = "false"
+
 
 def _asegurar_modulo(nombre: str, fabricar) -> None:
     """Inyecta un módulo falso SOLO si el real no está instalado."""

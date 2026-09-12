@@ -18,6 +18,9 @@ familia_conocida.json
 # --- Backups y temporales de ejecución ---
 backups/
 .ocr_tmp/
+# v10.4 (P0) — registros de ejecución: contienen nombres, municipios y URLs
+# de la investigación familiar. El repo es PÚBLICO: nunca al repositorio.
+logs/
 
 # --- Python ---
 __pycache__/

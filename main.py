@@ -44,8 +44,9 @@ from datetime import datetime
 
 from config import (BASE_DIR, ESTADO_PATH, FAMILIA_JSON_PATH, HASHES_CORPUS,
                     HALLAZGOS_JSON, INFORME_FASE1, MAX_STEPS, MODELO_FASE1,
-                    MODELO_FASE2, REFINADO_JSON, SALIDA_JSON, _limpiar_claves,
-                    normalizar, sha256_corto, get_db)
+                    MODELO_FASE2, OCR_BACKEND, OCR_LLAMACPP_FAMILIA,
+                    OCR_MAX_PAGINAS_LOCAL, REFINADO_JSON, SALIDA_JSON, VERSION,
+                    _limpiar_claves, normalizar, sha256_corto, get_db)
 from agent.evidencia import (NIVEL_CANDIDATO_FUERTE, NIVEL_COINCIDENCIA_DEBIL,
                              NIVEL_CONFIRMADO, reclasificar_arbol)
 from agent.fase1 import (ejecutar_fase1, generar_objetivos_busqueda,
@@ -124,6 +125,23 @@ def fase1(args, conn, datos: dict | None = None) -> None:
                 ui.log_warn(f"expansión geográfica: "
                             f"{res.provinciales_intentadas} consultas "
                             f"provinciales añadidas por municipio estéril")
+            # v10.4 (P3) — EVIDENCIA NEGATIVA: el informe de metodología
+            # profesional pide registrar las búsquedas infructuosas. Se
+            # apunta un objetivo que se ejecutó de verdad y no sacó ni un
+            # fragmento, con su fecha: así el bot sabe qué NO repetir mañana
+            # (y el humano, dónde toca escribir o ir en persona). No es una
+            # prueba de que el documento no exista y el informe lo dice así.
+            if not res.fragmentos:
+                try:
+                    from agent.evidencia_negativa import registrar as _reg_neg
+                    _reg_neg(ancla=obj.get("nombre", ""), tipo="objetivo",
+                             municipio=obj.get("municipio", ""),
+                             provincia=obj.get("provincia", ""),
+                             consultas=len(res.queries_ejecutadas),
+                             motivo="sin fragmentos relevantes en la web")
+                except Exception as e:
+                    ui.log_warn(f"evidencia negativa no registrada: "
+                                f"{str(e)[:80]}")
             # Gasto acumulado tras cada objetivo
             total_tok = GASTO.prompt_tokens + GASTO.completion_tokens
             ui.log_stats(f"gasto acumulado: {total_tok} tokens, ${GASTO.coste:.4f}"
@@ -599,6 +617,29 @@ def main() -> None:
                              "que usará el agente)")
     args = parser.parse_args()
 
+    # v10.4 (P0) — REGISTRO DE EJECUCIÓN ("caja negra"). Se abre AQUÍ, cuando
+    # ya se sabe qué se ha pedido, para que la cabecera del log diga con qué
+    # ajustes se lanzó (es lo primero que se mira al depurar una noche). El
+    # pie y el cierre los garantiza atexit, también en los modos que acaban
+    # con SystemExit (--diagnostico, --probar-ocr...).
+    ui.iniciar_log()
+    ui.cabecera_log({
+        "version": VERSION,
+        "fase": args.fase,
+        "ciclos": args.ciclo,
+        "max_steps": args.max_steps,
+        "presupuesto_max": (f"${args.presupuesto_max:.2f}"
+                            if args.presupuesto_max is not None
+                            else "SIN TOPE (ojo)"),
+        "personas": args.personas or "(todas las de la frontera)",
+        "sin_cache": args.sin_cache,
+        "OCR_BACKEND": OCR_BACKEND,
+        "OCR_LLAMACPP_FAMILIA": OCR_LLAMACPP_FAMILIA,
+        "OCR_MAX_PAGINAS_LOCAL": OCR_MAX_PAGINAS_LOCAL,
+        "MODELO_FASE1": MODELO_FASE1,
+        "MODELO_FASE2": MODELO_FASE2,
+    })
+
     # v4.2 (punto 6): ids estables en familia_conocida.json antes de
     # cualquier modo que la toque (--frontera, --aceptar, --ciclo...).
     # Solo AÑADE el campo 'id'; no cambia nada más.
@@ -690,6 +731,9 @@ def main() -> None:
     finally:
         resumen_gasto()
         conn.close()
+        # v10.4 (P0): pie del registro (duración + recuento de avisos y
+        # errores) y aviso de dónde quedó el fichero. Idempotente.
+        ui.cerrar_log()
 
 
 if __name__ == "__main__":
