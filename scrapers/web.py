@@ -612,19 +612,31 @@ _LLAMACPP_TOKENS_MODELO = {
 
 _LLAMACPP_AVISO = False        # warn de "servidor caído" ya emitido
 _LLAMACPP_CAIDO = False        # tras el 1er fallo de conexión ni se reintenta
+_LLAMACPP_CAIDO_TS = 0.0       # v10.4: cuándo se detectó la caída
 _LLAMACPP_MODELO = ""          # id del modelo servido (cacheado de /v1/models)
 _LLAMACPP_AVISO_PAGINA = False # warn de "una página falló" ya emitido
 _LLAMACPP_AVISO_MODELO = False # warn de "modelo no parece de la familia" ya emitido
 _LLAMACPP_AVISO_GENERICO = False  # warn de "generico sin prompt" ya emitido
+
+# v10.4 (autonomía) — LA CAÍDA DEL SERVIDOR YA NO ES DEFINITIVA.
+# Antes, el primer fallo de conexión dejaba el OCR local apagado para TODO el
+# proceso: si el usuario arrancaba llama-server veinte minutos después (o el
+# servidor se reiniciaba a mitad de noche), el agente seguía sin transcribir
+# manuscritos hasta la noche siguiente, en silencio. Ahora se vuelve a
+# intentar cada LLAMACPP_REINTENTO_SEGUNDOS (el chequeo es un GET /health de
+# milisegundos, así que reintentar es barato; el aviso sigue saliendo UNA vez
+# por proceso).
+LLAMACPP_REINTENTO_SEGUNDOS = 600.0   # 10 minutos entre reintentos
 
 
 def _reset_llamacpp_estado() -> None:
     """Resetea el estado del cliente llama.cpp (lo usan los tests)."""
     global _LLAMACPP_AVISO, _LLAMACPP_CAIDO, _LLAMACPP_MODELO
     global _LLAMACPP_AVISO_PAGINA, _LLAMACPP_AVISO_MODELO
-    global _LLAMACPP_AVISO_GENERICO
+    global _LLAMACPP_AVISO_GENERICO, _LLAMACPP_CAIDO_TS
     _LLAMACPP_AVISO = False
     _LLAMACPP_CAIDO = False
+    _LLAMACPP_CAIDO_TS = 0.0
     _LLAMACPP_MODELO = ""
     _LLAMACPP_AVISO_PAGINA = False
     _LLAMACPP_AVISO_MODELO = False
@@ -719,29 +731,48 @@ def _avisar_modelo_no_coincide(modelo: str) -> None:
 def _llamacpp_servidor_caido() -> bool:
     """True si ya sabemos que el llama-server no está (fallo previo en este
     proceso). Lo consulta _extraer_texto_pdf para decidir si cachea un
-    fracaso (NO: es transitorio, el usuario puede arrancar el servidor)."""
-    return _LLAMACPP_CAIDO
+    fracaso (NO: es transitorio, el usuario puede arrancar el servidor).
+
+    v10.4: la marca ya NO es definitiva. Pasada la ventana
+    LLAMACPP_REINTENTO_SEGUNDOS se devuelve False (y se borra la marca) para
+    que el siguiente intento vuelva a preguntar por /health: si el usuario
+    arrancó el servidor a mitad de noche, el OCR local se recupera solo."""
+    global _LLAMACPP_CAIDO
+    if not _LLAMACPP_CAIDO:
+        return False
+    if (time.time() - _LLAMACPP_CAIDO_TS) >= LLAMACPP_REINTENTO_SEGUNDOS:
+        _LLAMACPP_CAIDO = False
+        ui.log_doc("llama-server: ventana de reintento cumplida "
+                   f"({int(LLAMACPP_REINTENTO_SEGUNDOS / 60)} min): se "
+                   f"vuelve a probar el OCR local")
+        return False
+    return True
 
 
 def _aviso_llamacpp_caido(detalle: str) -> None:
     """Marca el servidor como caído y avisa UNA sola vez, con el comando
     exacto para arrancarlo (el de la FAMILIA activa, v10.1). Las llamadas
-    siguientes a _ocr_llamacpp devuelven ("", 0.0) sin tocar la red: la
-    cascada v10.0 NO escala a la nube — los PDFs escaneados quedan sin
-    texto (y sin cachear) hasta que el usuario arranque el servidor."""
-    global _LLAMACPP_AVISO, _LLAMACPP_CAIDO
+    siguientes a _ocr_llamacpp devuelven ("", 0.0) SIN tocar la red hasta
+    que pase la ventana de reintento (v10.4: ver
+    LLAMACPP_REINTENTO_SEGUNDOS); la cascada v10.0 NO escala a la nube — los
+    PDFs escaneados quedan sin texto (y sin cachear) hasta que el servidor
+    responda."""
+    global _LLAMACPP_AVISO, _LLAMACPP_CAIDO, _LLAMACPP_CAIDO_TS
     _LLAMACPP_CAIDO = True
+    _LLAMACPP_CAIDO_TS = time.time()
     if _LLAMACPP_AVISO:
         return
     _LLAMACPP_AVISO = True
     fila = _llamacpp_config_familia()
+    minutos = int(LLAMACPP_REINTENTO_SEGUNDOS / 60)
     ui.log_warn(
         f"llama-server no responde en {OCR_LLAMACPP_URL} ({detalle}). El OCR "
-        f"local con la familia '{fila['familia']}' queda DESACTIVADO en esta "
-        f"ejecución: los PDFs escaneados quedarán SIN TEXTO (OCR 100% local: "
-        f"el fallo no escala a nube) y SIN cachear, para reintentar cuando lo "
-        f"arranques. Para arrancarlo (detalles y compilación en el README, "
-        f"sección \"OCR local con llama.cpp + Vulkan\"): {fila['arranque']}")
+        f"local con la familia '{fila['familia']}' queda DESACTIVADO mientras "
+        f"no responda (se reintentará solo cada {minutos} min): los PDFs "
+        f"escaneados quedarán SIN TEXTO (OCR 100% local: el fallo no escala a "
+        f"nube) y SIN cachear, para reintentar cuando lo arranques. Para "
+        f"arrancarlo (detalles y compilación en el README, sección \"OCR "
+        f"local con llama.cpp + Vulkan\"): {fila['arranque']}")
 
 
 def _reescalar_para_olmocr(imagen: bytes) -> bytes:
@@ -822,7 +853,9 @@ def _ocr_llamacpp(imagenes: list[bytes]) -> tuple[str, float]:
     concatena con separador de página.
     """
     global _LLAMACPP_MODELO, _LLAMACPP_AVISO_PAGINA
-    if not imagenes or _LLAMACPP_CAIDO:
+    # v10.4: se consulta la FUNCIÓN (no el flag): así, pasada la ventana de
+    # reintento, un servidor arrancado a mitad de noche se vuelve a usar.
+    if not imagenes or _llamacpp_servidor_caido():
         return "", 0.0
 
     # v10.1: fila de la familia activa (system/prompt/limpieza YAML).
