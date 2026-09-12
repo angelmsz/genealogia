@@ -52,6 +52,7 @@ import io
 import json
 import os
 import random
+import sqlite3
 import time
 import threading
 from pathlib import Path
@@ -958,16 +959,36 @@ def _hash_pdf(pdf_bytes: bytes) -> str:
     return hashlib.sha256(pdf_bytes).hexdigest()
 
 
-def _ocr_cache_get(conn, hash_pdf: str) -> tuple[str, str, float] | None:
-    """Devuelve (texto, backend, confianza) cacheado para hash_pdf, o None."""
+def _ocr_cache_get(conn, hash_pdf: str) -> tuple[str, str, float,
+                                                   int | None, int | None] | None:
+    """Devuelve (texto, backend, confianza, paginas_procesadas,
+    paginas_total) cacheado para hash_pdf, o None.
+
+    v10.4.1 (tarea A): las dos últimas son None en las entradas antiguas (o
+    cuando el backend no rasteriza páginas). Sirven para saber si lo que hay
+    en la caché es el documento ENTERO o solo un trozo (el límite
+    OCR_MAX_PAGINAS_LOCAL): antes se devolvía como completo.
+    """
     if conn is None:
         return None
     with DB_LOCK:
-        fila = conn.execute(
-            "SELECT texto, backend_usado, confianza FROM ocr_cache "
-            "WHERE hash_pdf=?", (hash_pdf,)).fetchone()
+        try:
+            fila = conn.execute(
+                "SELECT texto, backend_usado, confianza, paginas_procesadas, "
+                "paginas_total FROM ocr_cache WHERE hash_pdf=?",
+                (hash_pdf,)).fetchone()
+        except sqlite3.OperationalError:
+            # v10.4.1 (A): BD antigua (tabla sin las columnas de páginas) o
+            # migración no aplicada (BD de solo lectura, esquema exótico). Se
+            # lee la forma de siempre y las páginas quedan como "no consta"
+            # (None): la caché es una optimización y no puede tumbar el OCR.
+            fila = conn.execute(
+                "SELECT texto, backend_usado, confianza FROM ocr_cache "
+                "WHERE hash_pdf=?", (hash_pdf,)).fetchone()
     if fila:
-        return fila[0], fila[1], fila[2] or 0.0
+        if len(fila) >= 5:
+            return fila[0], fila[1], fila[2] or 0.0, fila[3], fila[4]
+        return fila[0], fila[1], fila[2] or 0.0, None, None
     return None
 
 
@@ -989,14 +1010,87 @@ def _familia_de_backend_cacheado(backend: str) -> str | None:
 
 
 def _ocr_cache_set(conn, hash_pdf: str, texto: str, backend: str,
-                   confianza: float) -> None:
+                   confianza: float, paginas_procesadas: int | None = None,
+                   paginas_total: int | None = None) -> None:
+    """Guarda en la caché de OCR el resultado de un PDF.
+
+    v10.4.1 (tarea A): además del texto se guarda QUÉ PÁGINAS se procesaron y
+    cuántas tiene el documento. Sin esto, un PDF truncado por
+    OCR_MAX_PAGINAS_LOCAL se leía después como si estuviera completo (falso
+    negativo silencioso: nadie sabía que faltaban 325 de 355 páginas).
+
+    El INSERT lleva las columnas EXPLÍCITAS a propósito: con VALUES posicional
+    cualquier columna nueva en el esquema rompería esta función.
+    """
     if conn is None:
         return
     with DB_LOCK:
-        conn.execute(
-            "INSERT OR REPLACE INTO ocr_cache VALUES (?,?,?,?)",
-            (hash_pdf, texto, backend, confianza))
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO ocr_cache "
+                "(hash_pdf, texto, backend_usado, confianza, "
+                " paginas_procesadas, paginas_total) VALUES (?,?,?,?,?,?)",
+                (hash_pdf, texto, backend, confianza, paginas_procesadas,
+                 paginas_total))
+        except sqlite3.OperationalError:
+            # BD antigua sin las columnas de páginas (ver _ocr_cache_get).
+            conn.execute("INSERT OR REPLACE INTO ocr_cache VALUES (?,?,?,?)",
+                         (hash_pdf, texto, backend, confianza))
         conn.commit()
+
+
+def _nombre_corto(url: str, n: int = 60) -> str:
+    """Etiqueta legible de un documento para el log.
+
+    v10.4.1 (tarea A): antes se imprimían los ÚLTIMOS 40 caracteres de la URL
+    (`url_fuente[-40:]`), y en el log del 12/09 eso dejaba cosas como
+    'estatales/documents/CCEP-Web-1-PM_0.pdf': imposible distinguir los dos
+    PDFs de 355 páginas que se OCR-aron esa noche (13 min de GPU cada uno) ni
+    deducir de qué documento hablaba cada aviso. Ahora se ve el NOMBRE del
+    fichero, que es lo que el humano reconoce.
+    """
+    limpio = (url or "").split("?")[0].split("#")[0].rstrip("/")
+    if not limpio:
+        return "?"
+    nombre = limpio.rsplit("/", 1)[-1]
+    try:
+        from urllib.parse import unquote
+        nombre = unquote(nombre)
+    except Exception:
+        pass
+    nombre = nombre or limpio
+    return nombre if len(nombre) <= n else nombre[:n - 1] + "…"
+
+
+def _registrar_ocr_parcial(url_fuente: str, procesadas: int | None,
+                           total: int | None) -> None:
+    """v10.4.1 (tarea A) — Deja constancia de que un PDF se transcribió SOLO
+    EN PARTE (límite OCR_MAX_PAGINAS_LOCAL).
+
+    Escribe UNA línea en el registro de evidencia negativa (append-only, la
+    primera vez que el documento se procesa) con la forma "parcial: X/Y
+    páginas". El motivo por el que NO vale callarse: en el log del 12/09 se
+    procesaron 30 de 355 páginas y 30 de 240, y de ahí en adelante el
+    documento quedaba en la caché como si estuviera completo: para el
+    investigador (y para el informe) era indistinguible de "lo miré entero y
+    no había nada", que es un falso negativo de por vida. No es lo mismo
+    "buscado y no encontrado" que "parcialmente leído".
+
+    Nunca lanza: perder una línea de histórico no puede tumbar una descarga.
+    """
+    if not procesadas or not total or total <= procesadas:
+        return
+    try:
+        from agent.evidencia_negativa import registrar as _reg_neg
+        _reg_neg(ancla=_nombre_corto(url_fuente), tipo="documento_parcial",
+                 consultas=1, fuente="ocr",
+                 motivo=(f"parcial: {procesadas}/{total} páginas transcritas "
+                         f"(límite OCR_MAX_PAGINAS_LOCAL="
+                         f"{OCR_MAX_PAGINAS_LOCAL}); faltan "
+                         f"{total - procesadas} por leer"))
+    except Exception as e:
+        ui.log_warn(f"no se pudo registrar la parcialidad de "
+                    f"{_nombre_corto(url_fuente)}: {str(e)[:60]}")
 
 
 def _extraer_texto_pdf(pdf_bytes: bytes, url_fuente: str,
@@ -1044,9 +1138,21 @@ def _extraer_texto_pdf(pdf_bytes: bytes, url_fuente: str,
     # 1. Caché
     cacheado = _ocr_cache_get(conn, hash_pdf)
     if cacheado is not None:
-        texto, backend, conf = cacheado
+        texto, backend, conf, pag_proc, pag_tot = cacheado
         familia_cache = _familia_de_backend_cacheado(backend)
         if familia_cache is None or familia_cache == familia:
+            # v10.4.1 (tarea A): si lo cacheado es un documento TRUNCADO, hay
+            # que decirlo en CADA ejecución. Antes el aviso de truncamiento
+            # solo salía al rasterizar, así que en un relanzamiento (o al
+            # auditar el log de otro día) el PDF truncado parecía completo.
+            if pag_proc and pag_tot and pag_tot > pag_proc:
+                ui.log_warn(
+                    f"{_nombre_corto(url_fuente)} (caché OCR): PARCIAL "
+                    f"{pag_proc}/{pag_tot} páginas; faltan "
+                    f"{pag_tot - pag_proc} sin transcribir "
+                    f"(límite OCR_MAX_PAGINAS_LOCAL={OCR_MAX_PAGINAS_LOCAL}). "
+                    f"No es 'buscado y no encontrado': hay {pag_proc} páginas "
+                    f"leídas, y las demás siguen ahí si subes el límite.")
             return texto, backend + "_cache", conf
         # v10.1: entrada escrita con OTRA familia de llamacpp: NO se
         # reutiliza (el prompt/modelo que la produjo era distinto); se
@@ -1056,16 +1162,21 @@ def _extraer_texto_pdf(pdf_bytes: bytes, url_fuente: str,
                    f"{familia}): se re-procesa el PDF con la familia activa.")
 
     # 2. pypdf (gratis)
+    n_pag_pypdf: int | None = None
     try:
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         paginas = [p.extract_text() or "" for p in reader.pages]
+        n_pag_pypdf = len(reader.pages)
         texto_pypdf = " ".join(paginas)[:MAX_CHARS_TEXTO].strip()
     except Exception:
         texto_pypdf = ""
 
     # Si pypdf devolvió texto sustancial, listo.
     if len(texto_pypdf) >= 100:
-        _ocr_cache_set(conn, hash_pdf, texto_pypdf, "pypdf", 1.0)
+        # pypdf lee TODAS las páginas (el recorte es de caracteres, no de
+        # páginas): el documento no está truncado.
+        _ocr_cache_set(conn, hash_pdf, texto_pypdf, "pypdf", 1.0,
+                       n_pag_pypdf, n_pag_pypdf)
         return texto_pypdf, "pypdf", 1.0
 
     # 3. Manuscritos: SOLO OCR local con llama.cpp (v10.1: la familia que
@@ -1073,7 +1184,7 @@ def _extraer_texto_pdf(pdf_bytes: bytes, url_fuente: str,
     if _es_manuscrito(url_fuente):
         if OCR_BACKEND != "llamacpp":
             ui.log_warn(
-                f"{url_fuente[-40:]} -> fuente de MANUSCRITOS con "
+                f"{_nombre_corto(url_fuente)} -> fuente de MANUSCRITOS con "
                 f"OCR_BACKEND={OCR_BACKEND}: el OCR local clásico es para "
                 f"impreso y v10.0 NO escala a la nube. Arranca llama-server "
                 f"con un modelo de OCR local (familias glm-ocr/hunyuan/"
@@ -1083,36 +1194,37 @@ def _extraer_texto_pdf(pdf_bytes: bytes, url_fuente: str,
                 return texto_pypdf, "pypdf_poor", 0.0
             return "", "ocr_local_fallido", 0.0
         fila_fam = _llamacpp_config_familia()
-        ui.log_doc(f"{url_fuente[-40:]} -> fuente de MANUSCRITOS: se "
+        ui.log_doc(f"{_nombre_corto(url_fuente)} -> fuente de MANUSCRITOS: se "
                    f"transcribe con {fila_fam['nombre']} local "
                    f"(llama.cpp, familia {fila_fam['familia']})")
         imagenes, n_pag, n_total = _pdf_a_imagenes(
             pdf_bytes, OCR_MAX_PAGINAS_LOCAL)
         if imagenes:
             if n_total > n_pag:
-                ui.log_warn(f"PDF con {n_total} págs: se mandan a "
-                            f"OCR local solo las {n_pag} primeras "
-                            f"(límite OCR_MAX_PAGINAS_LOCAL).")
+                ui.log_warn(f"{_nombre_corto(url_fuente)}: PDF con {n_total} "
+                            f"págs; se mandan a OCR local solo las {n_pag} "
+                            f"primeras (límite OCR_MAX_PAGINAS_LOCAL).")
             texto_lc, conf_lc = _ocr_llamacpp(imagenes)
             if texto_lc:
-                ui.log_doc(f"{url_fuente[-40:]} -> {n_pag}/{n_total} "
+                ui.log_doc(f"{_nombre_corto(url_fuente)} -> {n_pag}/{n_total} "
                            f"págs, llamacpp/{fila_fam['familia']} "
                            f"manuscrito (conf. {conf_lc:.2f}), $0.00")
                 _ocr_cache_set(conn, hash_pdf, texto_lc,
-                               backend_lc_manuscrito, conf_lc)
+                               backend_lc_manuscrito, conf_lc, n_pag, n_total)
+                _registrar_ocr_parcial(url_fuente, n_pag, n_total)
                 return texto_lc, backend_lc_manuscrito, conf_lc
             if not _llamacpp_servidor_caido():
                 # Servidor VIVO pero sin texto: resultado real, se cachea
                 # para no repetir la inferencia la próxima vez.
-                ui.log_warn(f"{url_fuente[-40:]} -> el OCR local respondió "
-                            f"pero no sacó texto del manuscrito: se cachea "
-                            f"el fallo (backend ocr_local_fallido).")
+                ui.log_warn(f"{_nombre_corto(url_fuente)} -> el OCR local "
+                            f"respondió pero no sacó texto del manuscrito: se "
+                            f"cachea el fallo (backend ocr_local_fallido).")
                 _ocr_cache_set(conn, hash_pdf, "",
-                               "ocr_local_fallido", 0.0)
+                               "ocr_local_fallido", 0.0, 0, n_total)
                 return "", "ocr_local_fallido", 0.0
             # Servidor caído (aviso único ya emitido): fracaso TRANSITORIO,
             # SIN cachear para reintentar cuando el usuario lo arranque.
-            ui.log_warn(f"{url_fuente[-40:]} -> manuscrito pendiente SIN "
+            ui.log_warn(f"{_nombre_corto(url_fuente)} -> manuscrito pendiente SIN "
                         f"cachear: reinténtalo con llama-server arrancado.")
         # Sin imágenes (pdf2image no instalado / PDF ilegible): transitorio,
         # sin cachear.
@@ -1135,7 +1247,7 @@ def _extraer_texto_pdf(pdf_bytes: bytes, url_fuente: str,
     if not imagenes:
         # pdf2image no instalado o PDF no convertible: fallo TRANSITORIO,
         # SIN cachear (instalar poppler/pdf2image o reintentar más tarde).
-        ui.log_warn(f"{url_fuente[-40:]} -> no se pudieron convertir las "
+        ui.log_warn(f"{_nombre_corto(url_fuente)} -> no se pudieron convertir las "
                     f"páginas a imágenes (¿pdf2image instalado? ¿poppler "
                     f"en PATH?): OCR local imposible. OCR 100% local: el "
                     f"fallo no escala a nube; el documento queda SIN TEXTO "
@@ -1147,11 +1259,14 @@ def _extraer_texto_pdf(pdf_bytes: bytes, url_fuente: str,
     if n_pag_total > n_pag_procesadas:
         # Aviso claro de truncamiento: el usuario tiene que saber que
         # faltan páginas y que v10.0 NO las manda a ningún sitio más.
+        # v10.4.1 (A): con el NOMBRE del fichero delante (antes el aviso no
+        # decía de qué documento hablaba) y con la línea de evidencia negativa
+        # "parcial: X/Y" que se escribe más abajo, al cachear el resultado.
         n_omitidas = n_pag_total - n_pag_procesadas
-        ui.log_warn(f"PDF con {n_pag_total} páginas: OCR local solo de las "
-                    f"{n_pag_procesadas} primeras. Las {n_omitidas} "
-                    f"restantes NO se procesarán (límite "
-                    f"OCR_MAX_PAGINAS_LOCAL={OCR_MAX_PAGINAS_LOCAL}; "
+        ui.log_warn(f"{_nombre_corto(url_fuente)}: PDF con {n_pag_total} "
+                    f"páginas; OCR local solo de las {n_pag_procesadas} "
+                    f"primeras. Las {n_omitidas} restantes NO se procesarán "
+                    f"(límite OCR_MAX_PAGINAS_LOCAL={OCR_MAX_PAGINAS_LOCAL}; "
                     f"v10.0: sin escalada a la nube). Sube "
                     f"OCR_MAX_PAGINAS_LOCAL en config.py si quieres "
                     f"procesarlas todas (más lento).")
@@ -1164,18 +1279,21 @@ def _extraer_texto_pdf(pdf_bytes: bytes, url_fuente: str,
         fila_fam = _llamacpp_config_familia()
         texto_ocr, conf_ocr = _ocr_llamacpp(imagenes)
         # Log de una sola línea con icono [📄] ($0.00: inferencia local).
-        ui.log_doc(f"{url_fuente[-40:]} -> {n_pags}/{n_pag_total} págs, "
-                   f"llamacpp/{fila_fam['familia']} (conf. {conf_ocr:.2f}), "
-                   f"$0.00")
+        ui.log_doc(f"{_nombre_corto(url_fuente)} -> {n_pags}/{n_pag_total} "
+                   f"págs, llamacpp/{fila_fam['familia']} "
+                   f"(conf. {conf_ocr:.2f}), $0.00")
         if texto_ocr:
-            _ocr_cache_set(conn, hash_pdf, texto_ocr, backend_lc, conf_ocr)
+            _ocr_cache_set(conn, hash_pdf, texto_ocr, backend_lc, conf_ocr,
+                           n_pags, n_pag_total)
+            _registrar_ocr_parcial(url_fuente, n_pags, n_pag_total)
             return texto_ocr, backend_lc, conf_ocr
         if not _llamacpp_servidor_caido():
             # Servidor VIVO pero respuesta vacía: resultado real, cacheable.
-            ui.log_warn(f"{url_fuente[-40:]} -> el OCR local respondió pero "
-                        f"no devolvió texto: se cachea el fallo (backend "
+            ui.log_warn(f"{_nombre_corto(url_fuente)} -> el OCR local respondió "
+                        f"pero no devolvió texto: se cachea el fallo (backend "
                         f"ocr_local_fallido).")
-            _ocr_cache_set(conn, hash_pdf, "", "ocr_local_fallido", 0.0)
+            _ocr_cache_set(conn, hash_pdf, "", "ocr_local_fallido", 0.0,
+                           0, n_pag_total)
             return "", "ocr_local_fallido", 0.0
         # Servidor caído (aviso único ya emitido): TRANSITORIO, sin cachear.
         if texto_pypdf:
@@ -1191,28 +1309,32 @@ def _extraer_texto_pdf(pdf_bytes: bytes, url_fuente: str,
             return texto_pypdf, "pypdf_poor", 0.0
         return "", "ocr_local_fallido", 0.0
     texto_ocr, conf_ocr = _ocr_local(imagenes)
-    ui.log_doc(f"{url_fuente[-40:]} -> {n_pags}/{n_pag_total} págs, "
+    ui.log_doc(f"{_nombre_corto(url_fuente)} -> {n_pags}/{n_pag_total} págs, "
                f"{_OCR_BACKEND_ACTIVO or 'ocr'} (conf. {conf_ocr:.2f}), "
                f"$0.00")
     if texto_ocr:
         if conf_ocr >= OCR_CONFIANZA_MIN:
             _ocr_cache_set(conn, hash_pdf, texto_ocr,
-                           "ocr_local", conf_ocr)
+                           "ocr_local", conf_ocr, n_pags, n_pag_total)
+            _registrar_ocr_parcial(url_fuente, n_pags, n_pag_total)
             return texto_ocr, "ocr_local", conf_ocr
         # v10.0: confianza baja -> SIN escalada a la nube. Se conserva el
         # texto local (mejor que nada), marcado como poco fiable.
-        ui.log_warn(f"{url_fuente[-40:]} -> confianza local {conf_ocr:.2f} "
+        ui.log_warn(f"{_nombre_corto(url_fuente)} -> confianza local "
+                    f"{conf_ocr:.2f} "
                     f"< {OCR_CONFIANZA_MIN}: el texto se conserva marcado "
                     f"como 'ocr_local_low'. OCR 100% local: el fallo no "
                     f"escala a nube.")
         _ocr_cache_set(conn, hash_pdf, texto_ocr,
-                       "ocr_local_low", conf_ocr)
+                       "ocr_local_low", conf_ocr, n_pags, n_pag_total)
+        _registrar_ocr_parcial(url_fuente, n_pags, n_pag_total)
         return texto_ocr, "ocr_local_low", conf_ocr
     # Motor disponible pero sin texto: resultado real, cacheable.
-    ui.log_warn(f"{url_fuente[-40:]} -> el OCR local no reconoció texto en "
-                f"ninguna página: se cachea el fallo (backend "
+    ui.log_warn(f"{_nombre_corto(url_fuente)} -> el OCR local no reconoció "
+                f"texto en ninguna página: se cachea el fallo (backend "
                 f"ocr_local_fallido).")
-    _ocr_cache_set(conn, hash_pdf, "", "ocr_local_fallido", 0.0)
+    _ocr_cache_set(conn, hash_pdf, "", "ocr_local_fallido", 0.0,
+                   0, n_pag_total)
     return "", "ocr_local_fallido", 0.0
 
 

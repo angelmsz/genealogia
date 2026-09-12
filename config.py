@@ -1235,7 +1235,26 @@ def get_db() -> sqlite3.Connection:
     #   - confianza      : score de PaddleOCR (1.0 para pypdf/gemini).
     conn.execute("CREATE TABLE IF NOT EXISTS ocr_cache "
                  "(hash_pdf TEXT PRIMARY KEY, texto TEXT, "
-                 " backend_usado TEXT, confianza REAL)")
+                 " backend_usado TEXT, confianza REAL, "
+                 " paginas_procesadas INTEGER, paginas_total INTEGER)")
+    # v10.4.1 (tarea A) — MIGRACIÓN de las BD que ya existen (la tabla se creó
+    # sin las dos columnas de páginas). Sin ellas no se podía saber si un PDF
+    # cacheado estaba COMPLETO o truncado por OCR_MAX_PAGINAS_LOCAL=30: el
+    # log del 12/09 procesó 30 de 355 páginas y el relanzamiento lo habría
+    # devuelto desde la caché como si estuviera entero (30/355, 30/240...).
+    # ADD COLUMN no toca los datos que ya hay (quedan a NULL = "no consta").
+    try:
+        columnas = {fila[1] for fila in
+                    conn.execute("PRAGMA table_info(ocr_cache)")}
+        for col in ("paginas_procesadas", "paginas_total"):
+            if col not in columnas:
+                conn.execute(f"ALTER TABLE ocr_cache ADD COLUMN {col} INTEGER")
+        conn.commit()
+    except Exception:
+        # Una BD de solo-lectura o un esquema inesperado no puede impedir
+        # arrancar: la caché de OCR es una optimización, no una fuente de
+        # verdad (los datos están en corpus_bruto.json).
+        pass
     return conn
 
 
