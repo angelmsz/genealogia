@@ -1,0 +1,59 @@
+# ============================================================================
+# .gitignore — v10.0. Creado ANTES del primer git add.
+# El repositorio va a GitHub PÚBLICO: este archivo es la barrera que evita
+# subir claves reales (.env) y datos familiares privados.
+# ============================================================================
+
+# --- Secretos (NUNCA al repo) ---
+.env
+.env.*
+*.pem
+*.key
+
+
+# --- Bases de datos y datos de ejecución ---
+cache_agente.db
+familia_conocida.json
+
+# --- Backups y temporales de ejecución ---
+backups/
+.ocr_tmp/
+
+# --- Python ---
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# --- Modelos de OCR local (llama.cpp / olmOCR-2) — decenas de GB ---
+models/
+*.gguf
+
+# --- Documentos privados del usuario ---
+documentos_propios/
+
+# --- Artefactos de investigación (salidas, no código) ---
+corpus_bruto*.json
+arbol_hallazgos.json
+arbol_refinado.json
+arbol_refinado.json.bak
+arbol.ged
+estado_investigacion.json
+informe_fase1.json
+informe_progreso.md
+solicitudes.json
+solicitudes.md
+candidatos_ensenada.json
+registro_confirmaciones.jsonl
+
+# --- Zips de entrega y dossier generado ---
+*.zip
+DOSSIER_PARA_QWEN.txt
+
+# --- v10.1 (Tarea C.2): diffs de revisiones antiguas, fuera del repo ---
+# (v91_completo.diff / v92_completo.diff se quedan en disco, en historico/,
+#  pero dejan de versionarse: git rm --cached; verificado con git ls-files)
+*.diff
+
+# --- Carpeta de históricos (diffs antiguos movidos fuera de la raíz) ---
+historico/

@@ -1,0 +1,87 @@
+openai>=1.30.0
+tavily-python>=0.3.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+pypdf>=4.0.0
+urllib3>=2.0.0
+
+# v4.2 — OCR local (punto 1 del informe de fallos):
+# PaddleOCR exigía paddlepaddle, que NO llega a instalar en Windows con
+# Python moderno (compilación de dependencias C++ abortada a mitad). Se
+# sustituye por RapidOCR: los mismos modelos PP-OCR pero convertidos a
+# ONNX, instalables con un 'pip install' limpio en Windows/macOS/Linux
+# sin compilar nada. Si ya tenías paddle funcionando, OCR_BACKEND=paddleocr
+# en .env mantiene el comportamiento antiguo (legacy).
+#
+# Nota: rapidocr_onnxruntime arrastra onnxruntime (~15 MB) y funciona en
+# CPU (no usa GPU). Para manuscritos y PDFs escaneados con calidad, el
+# camino recomendado desde la v9.0 es OCR_BACKEND=llamacpp (ver abajo) y
+# desde la v10.0 NADA se manda a un modelo de visión en la nube.
+rapidocr_onnxruntime>=1.3.0
+pdf2image>=1.16.0
+# v10.1 (Tarea C.1) — Pillow como dependencia EXPLÍCITA: agent/gedcom.py
+# (transcribir_imagen: normaliza cualquier formato a PNG con PIL) y
+# scrapers/web.py (_reescalar_para_olmocr y _ocr_local: abren las imágenes
+# con PIL directamente). Antes llegaba SOLO de forma transitiva vía
+# pdf2image/rapidocr: una instalación sin esos extras hacía reventar
+# transcribir_imagen con ImportError.
+Pillow>=10.0.0
+# Nota: pdf2image requiere poppler en el sistema:
+#   Windows: descargar poppler y añadirlo al PATH
+#            (https://github.com/oschwartz10612/poppler-windows/releases)
+#   apt install poppler-utils   (Debian/Ubuntu)
+#   brew install poppler        (macOS)
+
+# v4.2/v10.0 — Manuscritos (punto 10): las partidas parroquiales
+# 1600-1900 son MANUSCRITAS y el OCR clásico de impreso (RapidOCR/
+# PaddleOCR) no lee nada útil de ellas: para los dominios de
+# DOMINIOS_MANUSCRITOS el agente usa SOLO el OCR local vía llama-server
+# (familias glm-ocr/hunyuan/olmocr2 desde la v10.1) o falla de forma
+# explícita. v10.0: nunca se escala a un modelo de visión en la nube.
+# No requiere ninguna dependencia extra.
+
+# v4.1/v4.2 — Reintento headless anti-Cloudflare (MEJORA 3, ahora OPT-IN):
+# Playwright + Chromium para las URLs que devuelven 403/503 con requests
+# normal. DESACTIVADO por defecto en v4.2 (REINTENTO_HEADLESS=false):
+# reintentar el salto de un bloqueo puede acabar con la IP vetada y va
+# contra las condiciones de uso de algunos archivos. Antes de activarlo,
+# prueba --solicitudes (petición por email al archivo).
+# TRAS instalar: ejecuta UNA vez "playwright install chromium" para
+# descargar el binario del navegador.
+playwright>=1.40.0
+
+# v4.2 — Pruebas automáticas (punto 11 del informe):
+# python -m pytest tests/ -q
+pytest>=8.0.0
+
+# ============================================================================
+# v9.0/v10.1 — OCR LOCAL CON LLAMA.CPP + VULKAN (GPU AMD, MULTI-MODELO)
+# ============================================================================
+# NO requiere ningún paquete de pip: el motor es un SERVIDOR EXTERNO
+# (llama-server, compilado con backend Vulkan) que sirve un modelo de OCR
+# por HTTP en localhost:8080 con API compatible OpenAI. Pensado para GPUs
+# AMD de consumo SIN soporte ROCm oficial (RX 6700 XT / gfx1031): Vulkan sí
+# funciona en esas tarjetas.
+#
+# v10.1 — Familias servibles (OCR_LLAMACPP_FAMILIA en .env): GLM-OCR
+# (0.9B, default), HunyuanOCR-1.5, olmOCR-2-7B o genérico. Ver README
+# sección "OCR local con llama.cpp + Vulkan" (comandos por familia).
+#
+# Activación (después de arrancar el servidor):
+#     .env:  OCR_BACKEND=llamacpp
+#            OCR_LLAMACPP_URL=http://localhost:8080     (default)
+#            OCR_LLAMACPP_FAMILIA=glm-ocr               (default v10.1)
+#
+# Opcional, SOLO para descargar el modelo desde HuggingFace con el comando
+# `huggingface-cli` del README (también puedes bajarlo a mano con el
+# navegador, o directamente dejar que `-hf` lo descargue solo). NO se
+# instala desde aquí: es un comando de consola, no un paquete de este
+# archivo (una línea 'pip install ...' dentro de requirements.txt rompe
+# 'pip install -r requirements.txt').
+#     pip install -U "huggingface_hub[cli]"
+#
+# v10.0 — Con el servidor arrancado, la cascada de OCR es 100% LOCAL:
+#     pypdf -> OCR local (gratis, manuscritos incluidos) -> fallo
+# explícito; y si el servidor NO está arrancado, se avisa UNA vez y el
+# PDF queda SIN TEXTO (sin cachear): NADA se escala a la nube (v10.0).
