@@ -655,6 +655,16 @@ def fase2(args, conn=None) -> None:
             #    hallazgos ('conexión no probada' = débil por definición);
             #  - resumen_general con las 3 secciones separadas;
             #  - clave resumen_evidencia para consumo programático.
+            # v10.4 (P1): ANTES de repartir niveles se añaden los padrinos y
+            # testigos con apellido de la familia como candidatas (pistas
+            # colaterales): el clasificador determinista les dará su nivel
+            # como a cualquier otra persona nueva.
+            n_colat = candidatas_por_colaterales(consolidado, hallazgos,
+                                                 datos_familia)
+            if n_colat:
+                ui.log_ok(f"{n_colat} padrino(s)/testigo(s) con apellido de "
+                          f"la familia -> candidatos nuevos (pistas "
+                          f"colaterales: se investigan, NUNCA son prueba)")
             _aplicar_evidencia_al_arbol(consolidado, hallazgos)
             with open(BASE_DIR / REFINADO_JSON, "w", encoding="utf-8") as f:
                 json.dump(consolidado, f, ensure_ascii=False, indent=2)
@@ -673,6 +683,80 @@ def fase2(args, conn=None) -> None:
     ui.cabecera("6/6 Exportando GEDCOM")
     exportar_gedcom()
     ui.log_ok("Fase 2 terminada.")
+
+
+# ============== v10.4 (P1) — PADRINOS Y TESTIGOS COMO PISTAS ================
+
+def candidatas_por_colaterales(consolidado: dict, hallazgos: list[dict],
+                               datos_familia: dict) -> int:
+    """AÑADE (en sitio) a consolidado["personas_nuevas_candidatas"] los
+    padrinos/madrinas/testigos cuyo APELLIDO sea un apellido de la familia.
+
+    Criterio: el informe de metodología profesional dice que "quienes
+    comparten apellidos con el padre o la madre son muy probablemente
+    familiares directos" y que la repetición de padrinos y testigos permite
+    reconstruir redes de parentesco. Un padrino con apellido AJENO es un
+    vecino o un amigo: NO se convierte en candidato (evita ruido y
+    presupuesto gastado buscando a desconocidos).
+
+    Garantías (filosofía del proyecto):
+      - El nivel de evidencia de estas candidatas lo decide el clasificador
+        DETERMINISTA, igual que el de cualquier otra persona nueva (casi
+        siempre 'coincidencia_debil'): se INVESTIGAN, no entran al árbol.
+      - No cambia el nivel de ningún hallazgo: un padrino no es un dato de
+        filiación (sería parentesco por apellido, justo lo prohibido).
+      - No duplica: ni nombres ya en el árbol, ni candidatas ya presentes.
+
+    Devuelve cuántas candidatas nuevas ha añadido.
+    """
+    from agent.evidencia import _apellidos_familia
+    from agent.frontera import nombres_colaterales
+
+    conocidas = [_limpiar_claves(p)
+                 for p in (datos_familia or {}).get("personas", [])]
+    apellidos_familia = _apellidos_familia(conocidas)
+    if not apellidos_familia:
+        return 0
+    candidatas = consolidado.get("personas_nuevas_candidatas")
+    if not isinstance(candidatas, list):
+        candidatas = []
+        consolidado["personas_nuevas_candidatas"] = candidatas
+    ya_norm = {normalizar((c.get("nombre") or "").strip())
+               for c in candidatas if isinstance(c, dict)}
+    anadidas = 0
+    for h in hallazgos:
+        if not isinstance(h, dict):
+            continue
+        for rol, nombre in nombres_colaterales(h):
+            clave = normalizar(nombre)
+            if not clave or clave in ya_norm:
+                continue
+            partes = [x for x in nombre.split() if x]
+            apellido = partes[1] if len(partes) > 1 else ""
+            if normalizar(sin_tildes(apellido)) not in apellidos_familia:
+                continue      # apellido ajeno: vecino/amigo, no familiar
+            if emparejar_persona(nombre, conocidas, avisar=False,
+                                 contexto="colateral") is not None:
+                continue      # ya está en el árbol: no es candidato
+            quien = (h.get("persona") or "").strip()
+            candidatas.append({
+                "nombre": nombre,
+                "motivo": (f"{rol} de "
+                           f"{quien or 'un miembro de la familia'}"
+                           + (f" ({h.get('tipo_evento')})"
+                              if h.get("tipo_evento") else "")
+                           + f": apellido '{apellido}' de la familia — "
+                             f"posible tío/abuelo/primo, verificar"),
+                "fuente_url": h.get("url_fuente", ""),
+                "municipio": (h.get("lugar") or "").strip(),
+                # 'apellido' lo usa calcular_frontera para priorizar por
+                # RAREZA: en un pueblo pequeño, un apellido raro es casi
+                # siempre familia.
+                "apellido": apellido,
+            })
+            ya_norm.add(clave)
+            anadidas += 1
+    return anadidas
 
 
 # ================== EVIDENCIA SOBRE EL ÁRBOL (v9.1) ========================
