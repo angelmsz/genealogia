@@ -29,7 +29,8 @@ from config import (BASE_DIR, DIR_DOCUMENTOS_PROPIOS, FAMILIA_JSON_PATH,
                     PARROQUIAS_CONOCIDAS, PARES_CATASTRO, PROVINCIAS_CONOCIDAS,
                     PROVINCIAS_SIN_ENSENADA, SALIDA_SOLICITUDES,
                     SALIDA_SOLICITUDES_MD, CANDIDATOS_ENSENADA, SESSION,
-                    MODELO_FASE1, MODELO_FASE2, _limpiar_claves,
+                    MODELO_FASE1, MODELO_FASE2, PRECIO_MILLON_TOKENS,
+                    PRECIO_POR_DEFECTO, _limpiar_claves,
                     _consulta_conector_hecha, _marcar_conector,
                     normalizar, sha256_corto, sin_tildes, variantes_compuesto)
 from scrapers.archivos import (ParesNoDisponible,
@@ -882,7 +883,19 @@ def diagnostico(test_llm: bool = False) -> int:
     try:
         r = SESSION.get("https://openrouter.ai/api/v1/models", timeout=30)
         r.raise_for_status()
-        ids = {m["id"] for m in r.json()["data"]}
+        catalogo = r.json()["data"]
+        ids = {m["id"] for m in catalogo}
+        # v10.4.1 (tarea E): la descarga del catálogo YA trae los precios
+        # vivos (pricing.prompt / pricing.completion). Aprovecharla para
+        # comprobar que la tabla de config.py no INFRAVALORA el gasto: si el
+        # precio del proveedor es más alto que el de la tabla, el estimador y
+        # --presupuesto-max se quedan cortos (que es exactamente lo que pasó:
+        # $0.1344 contados frente a $0.38 cobrados). Solo se avisa en la
+        # dirección peligrosa: si la tabla es MÁS ALTA que el precio vivo
+        # (p. ej. porque se apunta la tarifa PUNTA de un modelo con tarifa
+        # horaria), el estimador se queda largo y eso es lo que queremos.
+        precios_vivos = {m.get("id"): (m.get("pricing") or {})
+                         for m in catalogo}
         for etiqueta, modelo in (("fase 1", MODELO_FASE1), ("fase 2", MODELO_FASE2)):
             if modelo in ids:
                 ui.log_ok(f"{modelo} ({etiqueta}) existe")
@@ -893,6 +906,40 @@ def diagnostico(test_llm: bool = False) -> int:
                 similares = sorted(i for i in ids if familia in i)[:8]
                 if similares:
                     ui.log(f"       alternativas: {', '.join(similares)}")
+        for etiqueta, modelo in (("fase 1", MODELO_FASE1), ("fase 2", MODELO_FASE2)):
+            tabla = PRECIO_MILLON_TOKENS.get(modelo)
+            vivo = precios_vivos.get(modelo) or {}
+            if not tabla:
+                ui.log_warn(f"{modelo} ({etiqueta}) no está en "
+                            f"PRECIO_MILLON_TOKENS: se usaría el precio por "
+                            f"defecto (${PRECIO_POR_DEFECTO['entrada']}/"
+                            f"${PRECIO_POR_DEFECTO['salida']} por millón)")
+                continue
+            try:
+                vivo_in = float(vivo.get("prompt")) * 1_000_000
+                vivo_out = float(vivo.get("completion")) * 1_000_000
+            except (TypeError, ValueError):
+                ui.log_warn(f"{modelo} ({etiqueta}): OpenRouter no devolvió "
+                            f"precios legibles para comprobar la tabla")
+                continue
+            infras = []
+            if tabla["entrada"] < vivo_in * 0.8:
+                infras.append(f"entrada ${tabla['entrada']:.4f} < "
+                              f"${vivo_in:.4f} real")
+            if tabla["salida"] < vivo_out * 0.8:
+                infras.append(f"salida ${tabla['salida']:.4f} < "
+                              f"${vivo_out:.4f} real")
+            if infras:
+                errores += 1
+                ui.log_error(
+                    f"{modelo} ({etiqueta}): la tabla de config.py "
+                    f"INFRAVALORA el gasto ({'; '.join(infras)} por millón de "
+                    f"tokens). Actualiza PRECIO_MILLON_TOKENS o el estimador "
+                    f"y --presupuesto-max mentirán a la baja.")
+            else:
+                ui.log_ok(f"{modelo} ({etiqueta}): precio de config "
+                          f"${tabla['entrada']:.4f}/${tabla['salida']:.4f} >= "
+                          f"vivo ${vivo_in:.4f}/${vivo_out:.4f} (no infravalora)")
     except Exception as e:
         ui.log_warn(f"no se pudo consultar la lista de modelos: {str(e)[:80]}")
 
