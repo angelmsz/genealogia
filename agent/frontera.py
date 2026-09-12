@@ -36,7 +36,7 @@ from config import (BASE_DIR, ESTADO_PATH, FAMILIA_JSON_PATH,
                     PROVINCIAS_SIN_ENSENADA, REFINADO_JSON, HALLAZGOS_JSON,
                     APELLIDOS_COMUNES, DIGITALIZACION_PROVINCIA, STOPWORDS,
                     DIR_BACKUPS, BACKUP_MAX_COPIAS, REGISTRO_PATH,
-                    _limpiar_claves, normalizar)
+                    _limpiar_claves, normalizar, sha256_corto)
 from agent.evidencia import (ETIQUETA_SECCION_CANDIDATO,
                              ETIQUETA_SECCION_CONFIRMADO,
                              ETIQUETA_SECCION_DEBIL, NIVEL_CANDIDATO_FUERTE,
@@ -272,6 +272,143 @@ def _estrategias_para(provincia: str, tipo: str) -> list[str]:
 
 # ============================== CÁLCULO DE LA FRONTERA ====================
 
+# ============ v10.4.1 (tarea D) — FRONTERA AUTOALIMENTADA ==================
+# En la noche real del 12/09 la cola se quedó a CERO con el trabajo a medias:
+# los 15 objetivos se investigaron en el ciclo 1, la fase 2 produjo 58
+# hallazgos (2 de ellos marcados 'candidato_fuerte') y NINGUNO llegó a la
+# frontera, porque el único camino que existía era el COMMIT: solo
+# cometer_confirmaciones escribía estado["candidatos"], y anoche no confirmó
+# nada. La frontera únicamente se fabricaba a partir del ÁRBOL (personas
+# conocidas), así que sin commit no había nada nuevo que buscar y el
+# autopiloto se apagó dejando el 90% del presupuesto sin gastar.
+#
+# Regla nueva (el clasificador determinista sigue siendo el ÚNICO que
+# certifica; nada de esto entra al árbol):
+#   - hallazgo 'candidato_fuerte' (nombre compuesto de la familia + municipio
+#     exacto + fecha coherente, pero SIN segundo dato) -> entra en la COLA de
+#     verificación.
+#   - pista colateral (padrino/testigo con apellido de la familia, que P1 ya
+#     guardaba en arbol_refinado.json) -> entra con MENOS prioridad: es una
+#     pista, no una candidata.
+#   - reintento de lo ya investigado: cada entrada de estado["investigados"]
+#     guarda el hash de la evidencia que tocaba a esa persona y solo se
+#     REABRE si ese hash cambia (evidencia nueva). Sin novedad no se repite, y
+#     nadie tiene que borrar nada a mano para que el bot siga trabajando.
+
+def _leer_json(ruta, por_defecto):
+    """Lee un JSON del proyecto; devuelve por_defecto si falta o está roto
+    (esta función nunca puede tumbar la frontera por un fichero ilegible)."""
+    try:
+        if ruta.exists():
+            return json.loads(ruta.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        pass
+    return por_defecto
+
+
+def _hallazgos_fase2() -> list[dict]:
+    """Los hallazgos guardados por la fase 2 (arbol_hallazgos.json)."""
+    datos = _leer_json(BASE_DIR / HALLAZGOS_JSON, [])
+    return [h for h in datos if isinstance(h, dict)] \
+        if isinstance(datos, list) else []
+
+
+def _casa_con_ancla(ancla: str, nombre: str) -> bool:
+    """True si el nombre de un hallazgo se refiere a la persona `ancla`.
+
+    Tolerante con los nombres PARCIALES que traen las partidas e índices
+    ('Isidro Merillas' casa con la ficha 'Isidro Merillas Panero'): igual que
+    hace emparejar_persona en el resto del proyecto.
+    """
+    a, n = normalizar(ancla or ""), normalizar(nombre or "")
+    if not a or not n:
+        return False
+    if a in n or n in a:
+        return True
+    ta, tn = set(a.split()), set(n.split())
+    return bool(ta and tn) and (ta <= tn or tn <= ta)
+
+
+def _hallazgos_de(ancla: str, hallazgos: list[dict]) -> list[dict]:
+    return [h for h in hallazgos
+            if _casa_con_ancla(ancla, h.get("persona", ""))]
+
+
+def hash_evidencia(ancla: str, hallazgos: list[dict] | None = None) -> str:
+    """Huella de la EVIDENCIA que toca a una persona (no de la persona).
+
+    Se guarda en cada entrada de estado["investigados"] y es lo que decide si
+    una búsqueda ya hecha se REABRE: solo si aparecen hallazgos nuevos (otra
+    URL, otra fecha, otro tipo de evento). Devuelve "" cuando no hay ninguno:
+    sin evidencia no hay reapertura, así que no hay bucles de re-búsqueda.
+    """
+    if hallazgos is None:
+        hallazgos = _hallazgos_fase2()
+    piezas = sorted({
+        "|".join(str(h.get(k, "")) for k in
+                 ("persona", "tipo_evento", "fecha_valor", "url_fuente"))
+        for h in _hallazgos_de(ancla, hallazgos)})
+    return sha256_corto("::".join(piezas)) if piezas else ""
+
+
+def candidatos_fase2(personas: list[dict]) -> list[dict]:
+    """Candidatos y pistas que la fase 2 YA propuso y que nadie releía.
+
+    Fuentes (100% offline, ficheros que la fase 2 ya escribió):
+      - arbol_hallazgos.json: hallazgos de nivel 'candidato_fuerte';
+      - arbol_refinado.json: 'personas_nuevas_candidatas' (incluye las pistas
+        colaterales de P1: padrinos/testigos con apellido de la familia).
+
+    Nunca devuelve a nadie que ya esté en el árbol (si es una ficha conocida,
+    su camino son las ramas normales de la frontera). Una sola entrada por
+    persona; las 'coincidencia_debil' solo entran si traen documento detrás.
+    """
+    salida: dict[str, dict] = {}
+    for h in _hallazgos_fase2():
+        if h.get("nivel_evidencia") != NIVEL_CANDIDATO_FUERTE:
+            continue
+        nombre = (h.get("persona") or "").strip()
+        if not nombre or emparejar_persona(nombre, personas, avisar=False,
+                                           contexto="candidato fase 2"):
+            continue
+        e = salida.setdefault(normalizar(nombre), {
+            "nombre": nombre, "apellido": _apellido_de(nombre),
+            "municipio": "", "provincia": "",
+            "fuente": "candidato_fuerte",
+            "motivo": ("candidato fuerte de la fase 2 (nombre compuesto de la "
+                       "familia + municipio/fecha coherentes, pero SIN segundo "
+                       "dato independiente): verificar antes de dar nada por "
+                       "bueno"),
+        })
+        e["municipio"] = e["municipio"] or (h.get("lugar") or "").strip()
+    refinado = _leer_json(BASE_DIR / REFINADO_JSON, {})
+    candidatas = (refinado.get("personas_nuevas_candidatas")
+                  if isinstance(refinado, dict) else None) or []
+    for c in candidatas:
+        if not isinstance(c, dict):
+            continue
+        nombre = (c.get("nombre") or "").strip()
+        if not nombre or emparejar_persona(nombre, personas, avisar=False,
+                                           contexto="candidata fase 2"):
+            continue
+        fuerte = c.get("nivel_evidencia") == NIVEL_CANDIDATO_FUERTE
+        # Las DÉBILES solo entran si traen documento detrás (pistas
+        # colaterales de P1). Un 'quizá' del LLM sin fuente no gasta
+        # presupuesto: sería ruido pagado a precio de objetivo.
+        if not fuerte and not (c.get("fuente_url") or ""):
+            continue
+        salida.setdefault(normalizar(nombre), {
+            "nombre": nombre,
+            "apellido": c.get("apellido") or _apellido_de(nombre),
+            "municipio": (c.get("municipio") or "").strip(),
+            "provincia": (c.get("provincia") or "").strip(),
+            "fuente": "candidato_fuerte" if fuerte else "pista_colateral",
+            "motivo": (c.get("motivo")
+                       or "candidata propuesta por la fase 2"),
+        })
+    return list(salida.values())
+
+
 def calcular_frontera(familia: dict | None = None,
                       estado_previo: dict | None = None) -> dict:
     """La cola priorizada de investigación.
@@ -284,11 +421,17 @@ def calcular_frontera(familia: dict | None = None,
                      localizar a sus hermanos (la nidada). Sus partidas
                      revelan datos colaterales vitales (abuelos, origen de
                      los padres).
-      - "candidato": personas nuevas propuestas por la consolidación.
+      - "candidato": personas nuevas propuestas por la consolidación o por la
+                     fase 2 (v10.4.1: hallazgos 'candidato_fuerte' y pistas
+                     colaterales): se VERIFICAN, no entran al árbol.
 
     prioridad = 1.5*rareza_apellido + digitalizacion_archivo
                 + evidencia (2 confirmada / 1 fecha memoria / 0 nada)
                 + 1 si la persona nacio <= 1900 (mas cerca de 1700)
+
+    v10.4.1 (tarea D) — la frontera se alimenta también de lo que la fase 2
+    ya halló (ver candidatos_fase2) y una entrada ya investigada solo se
+    REABRE si su evidencia cambió (hash_evidencia), nunca por bucle.
 
     v4.2 (punto 4 del informe): la frontera ya no repite trabajo.
       - Entradas "hermanos": UNA SOLA por nidada (binomio de padres):
@@ -307,11 +450,17 @@ def calcular_frontera(familia: dict | None = None,
     prof = _generaciones(familia)
 
     # v4.2 (punto 4): claves de entradas ya investigadas en ciclos previos.
+    # v10.4.1 (D): se guarda la entrada ENTERA (no solo el ciclo) porque ahora
+    # trae también 'evidencia_hash': es lo que permite reabrir una búsqueda
+    # solo cuando hay evidencia nueva.
     investigados = {}
     for inv in estado_previo.get("investigados", []) or []:
         if isinstance(inv, dict) and inv.get("clave"):
-            investigados[inv["clave"]] = inv.get("ciclo", 0)
+            investigados[inv["clave"]] = inv
     nidadas_vistas: set[str] = set()
+    # v10.4.1 (D): la evidencia de la fase 2 decide las reaperturas.
+    hallazgos_f2 = _hallazgos_fase2()
+    reabiertas: list[str] = []
 
     def _clave_entrada(ancla: str, tipo: str, padres: list[str]) -> str:
         """Clave estable de una entrada: ancla+tipo (para 'hermanos', el
@@ -320,6 +469,28 @@ def calcular_frontera(familia: dict | None = None,
             return "hermanos::" + "::".join(
                 sorted(normalizar(x) for x in padres))
         return f"{tipo}::{normalizar(ancla)}"
+
+    def _omitir_por_investigada(clave: str, ancla: str) -> tuple[bool, str]:
+        """(¿omitir?, nota de reapertura) para una entrada ya investigada.
+
+        v10.4.1 (D): se OMITE salvo que la evidencia que toca a esa persona
+        haya CAMBIADO desde el ciclo en que se investigó (hash distinto y no
+        vacío). Es la regla que pidió el usuario: reintentar una semilla
+        antigua solo cuando algo nuevo la toque, nunca por bucle.
+        """
+        previo = investigados.get(clave)
+        if previo is None:
+            return False, ""
+        ciclo_previo = (previo.get("ciclo", 0)
+                        if isinstance(previo, dict) else previo)
+        hash_previo = (previo.get("evidencia_hash")
+                       if isinstance(previo, dict) else None)
+        hash_actual = hash_evidencia(ancla, hallazgos_f2)
+        if hash_actual and hash_previo and hash_actual != hash_previo:
+            reabiertas.append(clave)
+            return False, (f" · REABIERTA: hay evidencia nueva de esta persona "
+                           f"desde la última búsqueda (ciclo {ciclo_previo})")
+        return True, ""
 
     frontera: list[dict] = []
     omitidas_investigadas = 0
@@ -408,9 +579,14 @@ def calcular_frontera(familia: dict | None = None,
         # v4.2 (punto 4): si esta entrada ya se investigó en un ciclo
         # anterior (y su tipo no cambió, porque entonces la clave cambia),
         # queda fuera: no se vuelve a gastar en lo mismo.
-        if clave_investigacion in investigados:
+        # v10.4.1 (D): SALVO que haya evidencia nueva (hash_evidencia).
+        omitir, nota_reapertura = _omitir_por_investigada(clave_investigacion,
+                                                          nombre)
+        if omitir:
             omitidas_investigadas += 1
             continue
+        if nota_reapertura:
+            motivo += nota_reapertura
 
         frontera.append({
             "ancla": nombre,
@@ -427,33 +603,58 @@ def calcular_frontera(familia: dict | None = None,
             "clave_investigacion": clave_investigacion,
         })
 
-    # candidatos del estado anterior
-    for c in estado_previo.get("candidatos", []):
-        if not isinstance(c, dict) or not c.get("nombre"):
-            continue
-        if any(normalizar(e["ancla"]) == normalizar(c["nombre"])
+    # candidatos del estado anterior (los que propuso el COMMIT) y, v10.4.1
+    # (tarea D), los que propone la PROPIA fase 2 (candidato_fuerte) o sus
+    # pistas colaterales (P1: padrino/testigo con apellido de la familia).
+    def _anadir_candidato(c: dict, fuente: str = "commit") -> None:
+        """Mete una persona nueva en la cola como 'candidato' (se VERIFICA,
+        nunca entra al árbol). Devuelve sin hacer nada si falta el nombre, si
+        ya hay una entrada con ese ancla o si ya se investigó sin novedad."""
+        nonlocal omitidas_investigadas
+        nombre = (c.get("nombre") or "").strip()
+        if not nombre:
+            return
+        if any(normalizar(e.get("ancla", "")) == normalizar(nombre)
                for e in frontera):
-            continue
-        clave_inv = f"candidato::{normalizar(c['nombre'])}"
-        if clave_inv in investigados:
+            return
+        clave_inv = f"candidato::{normalizar(nombre)}"
+        omitir, nota = _omitir_por_investigada(clave_inv, nombre)
+        if omitir:
             omitidas_investigadas += 1
-            continue
+            return
+        # Prioridad: +5 para lo que hay que VERIFICAR; +2 para las PISTAS
+        # colaterales (un padrino es una pista, no una candidata: va detrás).
+        bonus = 2 if fuente == "pista_colateral" else 5
         frontera.append({
-            "ancla": c["nombre"], "apellido": "", "tipo": "candidato",
-            "buscar": [c["nombre"]], "municipio": c.get("municipio", ""),
+            "ancla": nombre, "apellido": c.get("apellido", ""),
+            "tipo": "candidato",
+            "buscar": [nombre], "municipio": c.get("municipio", ""),
             "provincia": c.get("provincia", ""),
-            "prioridad": round(1.5 * rareza_apellido(c.get("apellido", "")) + 5, 1),
-            "motivo": f"candidato a validar: {c.get('motivo', '')}",
+            "prioridad": round(1.5 * rareza_apellido(c.get("apellido", ""))
+                               + bonus, 1),
+            "motivo": (f"candidato a validar ({fuente}): "
+                       f"{c.get('motivo', '')}" + nota),
             "estrategias": ["tavily", "cluster FAN"],
             "generacion": None,
             "clave_investigacion": clave_inv,
         })
+
+    for c in estado_previo.get("candidatos", []):
+        if isinstance(c, dict):
+            _anadir_candidato(c, fuente="commit")
+
+    for c in candidatos_fase2(personas):
+        _anadir_candidato(c, fuente=c.get("fuente", "candidato_fuerte"))
 
     frontera.sort(key=lambda e: -e["prioridad"])
     if omitidas_investigadas:
         ui.log(f"{omitidas_investigadas} entradas ya investigadas en ciclos "
                f"anteriores quedan fuera de la frontera (para reintentarlas, "
                f"borra 'investigados' de {ESTADO_PATH})")
+    if reabiertas:
+        ui.log_ok(f"{len(reabiertas)} entrada(s) REABIERTA(S): su evidencia "
+                  f"cambió desde la última búsqueda (no es un bucle: es "
+                  f"información nueva)")
     return {
         "ciclo": estado_previo.get("ciclo", 0),
         "frontera": frontera,

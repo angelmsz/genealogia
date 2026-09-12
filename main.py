@@ -56,7 +56,7 @@ from agent.fase1 import (ejecutar_fase1, generar_objetivos_busqueda,
 from agent.fase2 import fase2
 from agent.frontera import (calcular_frontera, cargar_estado, cargar_familia,
                               cometer_confirmaciones, generar_informe_progreso,
-                              guardar_estado, mostrar_frontera)
+                              guardar_estado, hash_evidencia, mostrar_frontera)
 from agent.gedcom import (diagnostico, exportar_gedcom,
                            generar_candidatos_ensenada,
                            generar_solicitudes, importar_documentos_propios)
@@ -339,11 +339,32 @@ def ejecutar_ciclos(args, conn) -> None:
         # la próxima llamada a calcular_frontera() las deja fuera y el
         # autopiloto deja de repetir las mismas búsquedas (hermanos,
         # candidatos...) ciclo tras ciclo.
+        # v10.4.1 (D): además se guarda el HASH de la evidencia que tocaba a
+        # cada una. Es lo que permite reabrirla si mañana aparece algo nuevo
+        # de esa persona, sin borrar 'investigados' a mano.
         previos = {inv.get("clave") for inv in
                    estado.get("investigados", []) if isinstance(inv, dict)}
-        estado["investigados"] = (estado.get("investigados", []) + [
-            {"clave": c, "ciclo": ciclo} for c in sorted(claves_ciclo)
-            if c not in previos])
+        nuevas_investigadas = []
+        for clave_inv in sorted(claves_ciclo):
+            if clave_inv in previos:
+                continue
+            ancla = (clave_inv.split("::", 1)[1]
+                     if "::" in clave_inv else clave_inv)
+            nuevas_investigadas.append({
+                "clave": clave_inv, "ciclo": ciclo,
+                "evidencia_hash": hash_evidencia(ancla)})
+        estado["investigados"] = (estado.get("investigados", [])
+                                  + nuevas_investigadas)
+        # v10.4.1 (D) — COHERENCIA DEL ESTADO GUARDADO. Antes se guardaba la
+        # frontera calculada ANTES de apuntar las claves del ciclo, así que el
+        # fichero quedaba con las MISMAS personas en 'frontera' y en
+        # 'investigados' (el resumen de las 00:45 del 12/09 decía "15
+        # pendientes · 15 ya investigadas": eran las mismas 15) y el siguiente
+        # ciclo se encontraba la cola vacía por sorpresa. Se recalcula ahora,
+        # que es gratis (0 tokens, 0 red): lo que se guarda es exactamente lo
+        # que verá el ciclo siguiente.
+        estado = calcular_frontera(estado_previo=estado)
+        estado["ciclo"] = ciclo
         guardar_estado(estado)
         generar_informe_progreso()
         ui.log_ok(f"FIN DEL CICLO {ciclo}: {resumen['evidencias']} evidencias "
