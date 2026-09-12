@@ -208,6 +208,19 @@ else:
 
 # ============================== ARCHIVOS ====================================
 
+# v10.4 — versión del proyecto (la escriben la cabecera del registro de
+# ejecución y los informes; los carteles de main/lanzador son texto aparte).
+VERSION = "10.4"
+
+# v10.4 (P0) — observabilidad: registro de ejecución ("caja negra").
+# Todo lo que sale por consola se escribe también en logs/agente_*.log, con
+# fecha completa y sin colores. Es lo que permite depurar una noche que ya no
+# está en pantalla. LOG_AGENTE=false en .env lo desactiva.
+# La carpeta logs/ está en .gitignore (contiene nombres, municipios y URLs de
+# investigación familiar: NO puede acabar en un repo público).
+LOG_DIR = "logs"
+LOG_AGENTE = os.getenv("LOG_AGENTE", "true").lower() != "false"
+
 FAMILIA_JSON_PATH = "familia_conocida.json"
 DB_PATH = "cache_agente.db"
 SALIDA_JSON = "corpus_bruto.json"
@@ -221,6 +234,14 @@ CANDIDATOS_ENSENADA = "candidatos_ensenada.json"
 DIR_DOCUMENTOS_PROPIOS = "documentos_propios"
 SALIDA_SOLICITUDES = "solicitudes.json"
 SALIDA_SOLICITUDES_MD = "solicitudes.md"
+# v10.4 (P3) — registro append-only de búsquedas INFRUCTUOSAS (evidencia
+# negativa). El informe de metodología profesional lo pide expresamente:
+# "los genealogistas documentan cada paso… registran búsquedas infructuosas".
+# Solo crece, con fecha: un "no encontrado" de hace seis meses no vale lo
+# mismo que el de anoche, y ese es justo el dato que permitirá reabrir
+# búsquedas sin repetir las de ayer. NUNCA se registra aquí una caída de red
+# o un cooldown (eso es un fallo transitorio, no un "no existe": ver v4.3).
+EVIDENCIA_NEGATIVA = "evidencia_negativa.jsonl"
 
 # ===================== v4.2 — SEGURIDAD DE DATOS (punto 7) =================
 # Registro append-only: cada evidencia comprometida se añade como una línea
