@@ -71,6 +71,7 @@ from config import (DELAY_DESCARGAS, MAX_CHARS_TEXTO,
                     OCR_LLAMACPP_FAMILIA, OCR_LLAMACPP_MAX_LADO,
                     OCR_LLAMACPP_PROMPT, OCR_LLAMACPP_TIMEOUT_CONEXION,
                     OCR_LLAMACPP_TIMEOUT_INFERENCIA, OCR_LLAMACPP_URL,
+                    OCR_PAGINAS_REINTENTOS, OCR_SERIALIZAR_SERVIDOR,
                     OCR_TMP_DIR, OCR_USE_GPU, REINTENTO_HEADLESS, SESSION,
                     TAVILY_API_KEY, DB_LOCK,
                     DOMINIOS_MANUSCRITOS, es_dominio_ignorado)
@@ -833,6 +834,14 @@ def _limpiar_salida_olmocr(texto: str) -> str:
     return t
 
 
+# v10.4.1 (tarea B) — Semáforo del servidor de OCR: UN documento a la vez.
+# Hay UNA GPU y llama-server no multiplexa de verdad (con -np 1 sirve una
+# petición por vez; con -np 2 repartiría el contexto -c 8192 en dos slots de
+# 4096, y nosotros pedimos max_tokens=4096 + imagen: daría 500 Server Error).
+# Protege solo la conversación HTTP; ver _ocr_llamacpp.
+_OCR_SERVIDOR_LOCK = threading.RLock()
+
+
 def _ocr_llamacpp(imagenes: list[bytes]) -> tuple[str, float]:
     """OCR con un modelo servido por llama.cpp (Vulkan, GPU AMD local).
 
@@ -852,7 +861,26 @@ def _ocr_llamacpp(imagenes: list[bytes]) -> tuple[str, float]:
     Las páginas se mandan de UNA en UNA: así un timeout en la página 7 no
     pierde las 6 anteriores. El texto de las páginas que sí responden se
     concatena con separador de página.
+
+    v10.4.1 (tarea B) — ESTA es la puerta única al llama-server: coge el
+    semáforo `_OCR_SERVIDOR_LOCK` para que solo haya UN documento
+    transcribiendo a la vez. Motivo medido: fase1.py descarga con 3 hilos
+    (N_HILOS_DESCARGA) y el OCR corre dentro de esos hilos, así que en el log
+    del 12/09 dos PDFs se OCR-earon simultáneamente (dos 355/240 páginas
+    interleaved entre 23:31 y 23:45) contra UNA sola GPU: las páginas se
+    repartían el motor y 10 de 30 se pasaron de los 60 s de timeout y se
+    perdieron. El semáforo NO serializa descargas ni rasterizado (CPU): solo
+    la conversación con el servidor.
     """
+    if not OCR_SERIALIZAR_SERVIDOR:
+        return _ocr_llamacpp_servidor(imagenes)
+    with _OCR_SERVIDOR_LOCK:
+        return _ocr_llamacpp_servidor(imagenes)
+
+
+def _ocr_llamacpp_servidor(imagenes: list[bytes]) -> tuple[str, float]:
+    """Cuerpo real del OCR por llama.cpp (llamar SIEMPRE con el semáforo
+    `_OCR_SERVIDOR_LOCK` cogido; ver _ocr_llamacpp)."""
     global _LLAMACPP_MODELO, _LLAMACPP_AVISO_PAGINA
     # v10.4: se consulta la FUNCIÓN (no el flag): así, pasada la ventana de
     # reintento, un servidor arrancado a mitad de noche se vuelve a usar.
@@ -885,6 +913,9 @@ def _ocr_llamacpp(imagenes: list[bytes]) -> tuple[str, float]:
 
     textos: list[str] = []
     fallidas = 0
+    reintentos_usados = 0
+    recuperadas = 0
+    servidor_caido = False
     for i, img in enumerate(imagenes, 1):
         img_final = _reescalar_para_olmocr(img)
         b64 = base64.b64encode(img_final).decode("ascii")
@@ -908,44 +939,70 @@ def _ocr_llamacpp(imagenes: list[bytes]) -> tuple[str, float]:
                 ]},
             ],
         }
-        try:
-            r = requests.post(
-                f"{OCR_LLAMACPP_URL.rstrip('/')}/v1/chat/completions",
-                json=payload, timeout=OCR_LLAMACPP_TIMEOUT_INFERENCIA)
-            r.raise_for_status()
-            contenido = (((r.json().get("choices") or [{}])[0]
-                          .get("message") or {}).get("content") or "")
-        except requests.exceptions.ConnectionError as e:
-            # El servidor se cayó a mitad del PDF: no seguimos martillando
-            # (las páginas ya transcritas se conservan).
-            _aviso_llamacpp_caido(str(e)[:120])
+        # v10.4.1 (tarea B): hasta OCR_PAGINAS_REINTENTOS reintentos POR
+        # PÁGINA. En el log del 12/09 se perdieron 12 páginas (10 de 30 y 2
+        # de 6) sin un solo reintento: el texto se cacheaba con esos huecos.
+        # El coste está acotado (como mucho un timeout extra por página) y el
+        # servidor caído sigue cortando el PDF entero, no se reintenta.
+        texto = ""
+        for intento in range(OCR_PAGINAS_REINTENTOS + 1):
+            if intento:
+                reintentos_usados += 1
+            try:
+                r = requests.post(
+                    f"{OCR_LLAMACPP_URL.rstrip('/')}/v1/chat/completions",
+                    json=payload, timeout=OCR_LLAMACPP_TIMEOUT_INFERENCIA)
+                r.raise_for_status()
+                contenido = (((r.json().get("choices") or [{}])[0]
+                              .get("message") or {}).get("content") or "")
+            except requests.exceptions.ConnectionError as e:
+                # El servidor se cayó a mitad del PDF: no seguimos martillando
+                # (las páginas ya transcritas se conservan).
+                _aviso_llamacpp_caido(str(e)[:120])
+                servidor_caido = True
+                break
+            except Exception as e:   # timeout de inferencia, HTTP, JSON roto
+                texto = ""
+                if intento < OCR_PAGINAS_REINTENTOS:
+                    continue
+                fallidas += 1
+                # v10.2 — antes str(e)[:80] CORTABA la URL del endpoint a la
+                # mitad (".../v1/chat/c"), que parecía un endpoint roto cuando
+                # el error era del servidor: el mensaje completo de requests
+                # ("500 Server Error ... for url: .../v1/chat/completions")
+                # mide ~100 caracteres. Se amplía el recorte a 120.
+                if not _LLAMACPP_AVISO_PAGINA:
+                    _LLAMACPP_AVISO_PAGINA = True
+                    ui.log_warn(f"llama.cpp: página {i}/{len(imagenes)} falló "
+                                f"({str(e)[:120]}); se continúa con el resto.")
+                break
+            # v10.1: la limpieza del front matter YAML SOLO aplica a olmOCR-2
+            # (las demás familias no lo emiten; su salida va tal cual, tras el
+            # strip de cortesía).
+            if conf_fam["limpia_yaml"]:
+                texto = _limpiar_salida_olmocr(contenido)
+            else:
+                texto = (contenido or "").strip()
+            if texto:
+                if intento:
+                    recuperadas += 1
+                break
+            # Respuesta VACÍA: cuenta como fallo de la página (se reintenta
+            # igual que un error y, si no hay más intentos, se cuenta una vez).
+            if intento >= OCR_PAGINAS_REINTENTOS:
+                fallidas += 1
+        if servidor_caido:
             break
-        except Exception as e:      # timeout de inferencia, HTTP, JSON roto
-            fallidas += 1
-            # v10.2 — antes str(e)[:80] CORTABA la URL del endpoint a la
-            # mitad (".../v1/chat/c"), que parecía un endpoint roto cuando
-            # el error era del servidor: el mensaje completo de requests
-            # ("500 Server Error ... for url: .../v1/chat/completions")
-            # mide ~100 caracteres. Se amplía el recorte a 120.
-            if not _LLAMACPP_AVISO_PAGINA:
-                _LLAMACPP_AVISO_PAGINA = True
-                ui.log_warn(f"llama.cpp: página {i}/{len(imagenes)} falló "
-                            f"({str(e)[:120]}); se continúa con el resto.")
-            continue
-        # v10.1: la limpieza del front matter YAML SOLO aplica a olmOCR-2
-        # (las demás familias no lo emiten; su salida va tal cual, tras el
-        # strip de cortesía).
-        if conf_fam["limpia_yaml"]:
-            texto = _limpiar_salida_olmocr(contenido)
-        else:
-            texto = (contenido or "").strip()
         if texto:
             textos.append(texto)
-        else:
-            fallidas += 1
 
     if not textos:
         return "", 0.0
+    if reintentos_usados:
+        ui.log(f"llama.cpp: {reintentos_usados} página(s) reintentada(s) "
+               f"({recuperadas} recuperada(s), "
+               f"{reintentos_usados - recuperadas} perdida(s) en el "
+               f"reintento).")
     if fallidas:
         ui.log_warn(f"llama.cpp: {fallidas} de {len(imagenes)} páginas sin "
                     f"transcribir (timeout o respuesta vacía); se conserva "

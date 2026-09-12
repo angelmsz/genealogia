@@ -153,6 +153,24 @@ OCR_LLAMACPP_TIMEOUT_CONEXION = float(
 # no es instantáneo (por página puede tardar decenas de segundos).
 OCR_LLAMACPP_TIMEOUT_INFERENCIA = float(
     os.getenv("OCR_LLAMACPP_TIMEOUT_INFERENCIA", "60.0"))
+# v10.4.1 (tarea B) — Reintentos de UNA página antes de darla por perdida.
+# En el log del 12/09 quedaron 12 páginas sin transcribir (10 de 30 y 2 de 6)
+# y no se recuperaban jamás: el bucle pasaba a la siguiente y el texto se
+# cacheaba CON esos huecos (y, hasta la tarea A, sin decirlo). Un reintento
+# recupera los fallos transitorios y su coste está acotado: como mucho un
+# timeout extra por página. 0 = comportamiento anterior.
+OCR_PAGINAS_REINTENTOS = int(os.getenv("OCR_PAGINAS_REINTENTOS", "1"))
+# v10.4.1 (tarea B) — UN documento a la vez contra llama-server (¡hay UNA
+# GPU!). fase1.py descarga con N_HILOS_DESCARGA=3 hilos y el OCR se ejecuta
+# DENTRO de esos hilos, sin ningún cerrojo: en el log del 12/09 se OCR-earon
+# dos PDFs simultáneamente (log interleaved 23:31-23:45) y eso explica que 10
+# de 30 páginas se pasaran de los 60 s de timeout: la GPU se repartía entre
+# dos documentos y ninguna avanzaba a tiempo. El semáforo serializa SOLO la
+# conversación con el servidor; descargas y rasterizado (CPU) siguen en
+# paralelo. false = comportamiento anterior (más rápido solo si no hay
+# solapamiento, y por eso NO es el defecto).
+OCR_SERIALIZAR_SERVIDOR = (
+    os.getenv("OCR_SERIALIZAR_SERVIDOR", "true").lower() != "false")
 
 # v10.1 — Backend llamacpp MULTI-MODELO: qué familia de modelo sirve el
 # llama-server. El protocolo del cliente HTTP NO cambia (API OpenAI del

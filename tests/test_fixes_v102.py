@@ -283,11 +283,23 @@ def test_procesar_contenido_pdf_real_sigue_siendo_pdf(tmp_path):
 
 # ======================= FIX 6 — llama.cpp max_tokens y recorte =============
 
+def _fuente_ocr_llamacpp() -> str:
+    """Código fuente del OCR de llama.cpp.
+
+    v10.4.1 (tarea B): el cuerpo se movió a `_ocr_llamacpp_servidor` porque
+    `_ocr_llamacpp` pasó a ser la puerta única que coge el semáforo del
+    servidor (un documento a la vez en la misma GPU). Los FIX 6 se comprueban
+    sobre el cuerpo REAL, se llame como se llame.
+    """
+    return inspect.getsource(getattr(web, "_ocr_llamacpp_servidor",
+                                     web._ocr_llamacpp))
+
+
 def test_ocr_llamacpp_max_tokens_deja_sitio_para_la_imagen():
     """FIX 6: max_tokens 8192 == contexto '-c 8192' completo dejaba 0
     tokens para imagen+prompt y llama-server respondía 500. Ahora se
     piden 4096: la mitad del contexto queda para la imagen."""
-    src = inspect.getsource(web._ocr_llamacpp)
+    src = _fuente_ocr_llamacpp()
     assert '"max_tokens": 4096' in src
 
 
@@ -295,7 +307,7 @@ def test_ocr_llamacpp_error_no_corta_la_url():
     """FIX 6: el recorte a 80 caracteres cortaba la URL del endpoint y
     el log mostraba 'http://localhost:8080/v1/chat/c' (parecía un
     endpoint roto). El recorte del fallo de página es ahora de 120."""
-    src = inspect.getsource(web._ocr_llamacpp)
+    src = _fuente_ocr_llamacpp()
     assert "({str(e)[:120]}); se continúa" in src, (
         "el mensaje de fallo de página debe recortar a 120 caracteres")
     assert "({str(e)[:80]}); se continúa" not in src, (
