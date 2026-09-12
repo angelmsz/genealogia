@@ -667,6 +667,34 @@ def recolector_ensenada(objetivo: dict, conn=None) -> list[dict]:
     return docs
 
 
+# =============== v10.3 — ERRORES DE PROGRAMACIÓN EN LOS CONECTORES ========
+# El FIX 1 de la v10.2 arregló la INSTANCIA del fallo más caro del log
+# (SIGA/ADDO/Ensenada invocados sin argumentos), pero no la CLASE: si
+# cualquier conector revienta por un fallo de FIRMA, un import roto o un
+# atributo mal escrito, la excepción se vuelve a tragar con un log_warn por
+# objetivo y la tanda entera se va sin esa fuente (45 avisos amarillos
+# idénticos en el log del 2026-09-11 y nadie se enteró).
+# Estos tipos son BUGS NUESTROS (deterministas), no fallos de red: se
+# avisan UNA vez por ejecución con nivel ERROR y se cuentan.
+ERRORES_PROGRAMACION: tuple[type[BaseException], ...] = (
+    TypeError,           # firma equivocada: el caso REAL de la v10.2
+    NameError,           # nombre no definido
+    UnboundLocalError,   # local usada antes de asignar
+    AttributeError,      # atributo inexistente (p. ej. None.text)
+    ImportError,         # import roto (ImportError ya cubre ModuleNotFound)
+)
+
+# conector -> nº de veces que ha abortado por error de programación
+_ABORTOS_PROGRAMACION: dict[str, int] = {}
+
+
+def reiniciar_contador_abortos() -> None:
+    """Vacía el contador de abortos por error de programación (lo usan los
+    tests para no arrastrar estado; y cualquier proceso de larga vida que
+    quiera volver a ver el aviso)."""
+    _ABORTOS_PROGRAMACION.clear()
+
+
 # ============================== ORQUESTADOR ================================
 
 def recolectar(objetivo: dict, conn=None) -> list[dict]:
@@ -685,7 +713,12 @@ def recolectar(objetivo: dict, conn=None) -> list[dict]:
     llevaban toda la ejecución muertos y sus fuentes (sacramentales de
     Álava, ADDO, Catastro de Ensenada) sin consultar. Ahora van
     envueltos en closures exactamente igual que HISPAGEN y
-    FamilySearch, que ya capturaban ``objetivo`` y ``conn``."""
+    FamilySearch, que ya capturaban ``objetivo`` y ``conn``.
+
+    v10.3: el FIX 1 arregló la INSTANCIA, no la CLASE. Un fallo de
+    programación en un conector (firma, import, atributo) ya no se
+    confunde con un fallo de red: sale como log_error UNA vez por
+    ejecución y ese conector se aborta sin impedir a los demás."""
     def _recolector_familysearch():
         from scrapers.familysearch import recolector_familysearch
         return recolector_familysearch(objetivo, conn)
@@ -711,6 +744,21 @@ def recolectar(objetivo: dict, conn=None) -> list[dict]:
             docs += conector()
         except PresupuestoExcedido:
             raise
+        except ERRORES_PROGRAMACION as e:
+            # v10.3: BUG NUESTRO, no fallo de red. Se aborta ESTA llamada
+            # (los demás conectores siguen) y se avisa UNA sola vez con
+            # nivel error; los objetivos siguientes lo reintentan en
+            # silencio y solo suman el contador.
+            nombre = conector.__name__
+            _ABORTOS_PROGRAMACION[nombre] = (
+                _ABORTOS_PROGRAMACION.get(nombre, 0) + 1)
+            if _ABORTOS_PROGRAMACION[nombre] == 1:
+                ui.log_error(
+                    f"BUG en {nombre}(): {type(e).__name__}: "
+                    f"{str(e)[:200]} — NO es un fallo de red: es un error "
+                    f"de programación del conector. Se ABORTA ese conector "
+                    f"(los demás siguen); arréglalo antes de la siguiente "
+                    f"ejecución.")
         except Exception as e:
             ui.log_warn(f"recolector {conector.__name__} falló: "
                         f"{str(e)[:100]}")
