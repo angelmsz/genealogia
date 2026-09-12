@@ -347,7 +347,25 @@ PAGINAS_CONECTOR = 3
 # 3 fragmentos x 12000 car.): con prompts largos y el modelo saturado,
 # 45 s se quedaba corto. Si ves "no respondió en Ns" seguido, sube el
 # valor en .env (cada intento puede durar hasta ese tiempo).
-TIMEOUT_LLM = float(os.getenv("TIMEOUT_LLM", "45"))  # seg. máx. por llamada (hard timeout)
+TIMEOUT_LLM = float(os.getenv("TIMEOUT_LLM", "60"))  # seg. máx. por llamada (hard timeout)
+# v10.4.1 (tarea C del log real del 12/09) — la fase 2 NO puede compartir el
+# timeout de la fase 1: sus llamadas son de otra liga. Medido en el log del
+# sobremesa: los 5 lotes de extracción que respondieron tardaron
+# 43/34/18/20/3 s y devolvieron 6.863 tokens de SALIDA de media (34.313 entre
+# los 5): el tamaño de la respuesta es lo que se come el tiempo, no la red.
+# Con el techo de 45 s murieron 12 de 17 lotes tras 3 intentos cada uno
+# (36 intentos = 27 min tirados de los 34 min que duró la fase 2), y cada
+# intento abandonado se FACTURA (ver utils/llm.py, coste de abandonadas).
+# Remedios, por orden de efecto: (1) LOTE_HALLAZGOS 3 -> 1 (una respuesta
+# ~3x más corta tarda ~3x menos: ~15-20 s medidos); (2) techo propio de fase 2;
+# (3) 2 intentos en vez de 3; (4) cortacircuitos si fallan N lotes seguidos.
+TIMEOUT_LLM_FASE2 = float(os.getenv("TIMEOUT_LLM_FASE2", "120"))
+INTENTOS_FASE2 = int(os.getenv("INTENTOS_FASE2", "2"))
+# Cortacircuitos de la extracción: N lotes SEGUIDOS fallidos = el modelo no
+# está (caído, saturado o pidiendo demasiado): se corta, se declara la
+# extracción PARCIAL y los lotes restantes quedan para el siguiente
+# --fase 2 (la caché de hallazgos_por_hash evita repagar lo ya extraído).
+LOTES_FALLIDOS_CORTE = int(os.getenv("LOTES_FALLIDOS_CORTE", "3"))
 UMBRAL_LENTO = 15                  # seg. a partir del cual el spinner avisa
 INDICADORES_ACTIVOS = True         # False desactiva el spinner (logs limpios)
 _SPINNER_FRAMES = ["|", "/", "-", "\\"]
@@ -355,7 +373,15 @@ _SPINNER_FRAMES = ["|", "/", "-", "\\"]
 # Texto / lotes
 MAX_CHARS_TEXTO = 24_000
 MAX_CHARS_FASE2 = 12_000
-LOTE_HALLAZGOS = 3
+# v10.4.1 (tarea C): un fragmento por lote (antes 3). Con 3 fragmentos de
+# hasta 12.000 car. cada uno, la respuesta pedida (todos los hechos de los 3
+# documentos) se iba a 6.863 tokens de salida y a 43+ s, justo al borde del
+# timeout: 12 de 17 lotes murieron. Con 1 fragmento por lote la respuesta es
+# ~3x más corta y cabe de sobra en TIMEOUT_LLM_FASE2. Coste del cambio: ~33
+# llamadas más por noche x su prompt de sistema (~800 tokens de entrada) =
+# ~$0.008 con el modelo de fase 2: barato al lado de 27 min perdidos y 38
+# intentos facturados.
+LOTE_HALLAZGOS = 1
 LOTE_CONSOLIDACION = 150
 MAX_PDF_BYTES = 25_000_000
 
@@ -622,6 +648,31 @@ PRECIO_MILLON_TOKENS = {
     "deepseek/deepseek-v4-flash-vision-exp": {"entrada": 0.22, "salida": 0.66},
 }
 PRECIO_POR_DEFECTO = {"entrada": 1.0, "salida": 3.0}
+# v10.4.1 (tarea E) — TOPE DE SALIDA por llamada. Es la palanca que convierte
+# el coste de un intento en algo CALCULABLE antes de enviarlo: coste máximo =
+# (tokens de entrada, que ya conocemos porque el prompt lo escribimos
+# nosotros) x precio_entrada + max_tokens x precio_salida. Sin él, una
+# respuesta desbocada no tiene techo ni de tiempo ni de dinero.
+# Medido en el log del 12/09: los lotes de extracción devolvían ~6.863 tokens
+# de salida; 8.192 los cubre con margen y acota el peor caso.
+MAX_TOKENS_FASE2 = int(os.getenv("MAX_TOKENS_FASE2", "8192"))
+# Para las llamadas SIN tope explícito (fase 1 y auditoría): cuánta salida se
+# supone al estimar el coste de un intento ABANDONADO por timeout. Optimista
+# con lo que de verdad devuelven (la fase 1 responde en 3-40 s con respuestas
+# cortas), así que el estimador se queda corto, nunca largo.
+MAX_TOKENS_ESTIMADO = int(os.getenv("MAX_TOKENS_ESTIMADO", "4096"))
+# v10.4.1 (E) — Qué fracción del coste MÁXIMO de un intento abandonado se
+# apunta al presupuesto.
+#   1.0 (por defecto) = conservador por diseño: se supone que el proveedor
+#         factura el intento entero. El tope de --presupuesto-max se queda
+#         corto antes que largo, que es lo que se pidió.
+#   CALIBRACIÓN: restando el gasto medido de lo cobrado en la "Activity" de
+#   OpenRouter se obtiene el coste REAL de los abandonados. Con la noche del
+#   12/09 (46 intentos, $0.2456 reales frente a $0.4805 de peor caso) el
+#   factor que cuadra es ~0.5: la mitad de los intentos no llegó a
+#   facturarse. Ajústalo cuando tengas dos noches comparadas; mientras tanto
+#   dejarlo en 1.0 solo significa que el bot se detiene antes de lo necesario.
+FACTOR_COSTE_ABANDONADO = float(os.getenv("FACTOR_COSTE_ABANDONADO", "1.0"))
 
 # ============================== SESSION HTTP ===============================
 

@@ -27,13 +27,17 @@ import json
 from datetime import datetime
 
 from config import (BASE_DIR, DB_LOCK, FAMILIA_JSON_PATH, HALLAZGOS_JSON,
-                    JSON_SCHEMA_AUDITORIA, JSON_SCHEMA_CONSOLIDACION,
+                    INTENTOS_FASE2, JSON_SCHEMA_AUDITORIA,
+                    JSON_SCHEMA_CONSOLIDACION,
                     JSON_SCHEMA_HALLAZGOS,
                     LOTE_CONSOLIDACION, LOTE_HALLAZGOS,
+                    LOTES_FALLIDOS_CORTE,
                     MAX_CHARS_FASE2,
+                    MAX_TOKENS_FASE2,
                     MODELO_FASE1, MODELO_FASE2, REFINADO_JSON,
                     SYSTEM_PROMPT_AUDITORIA, SYSTEM_PROMPT_CONSOLIDACION,
                     SYSTEM_PROMPT_FUSION, SYSTEM_PROMPT_HALLAZGOS,
+                    TIMEOUT_LLM_FASE2,
                     _limpiar_claves, envolver_fuente,
                     normalizar, sha256_corto, sin_tildes, trocear)
 from agent.evidencia import (NIVEL_CANDIDATO_FUERTE, NIVEL_COINCIDENCIA_DEBIL,
@@ -117,6 +121,9 @@ def extraer_hallazgos(fragmentos: list[dict], conn=None) -> list[dict]:
 
     hallazgos = []
     lotes = list(trocear(fragmentos, LOTE_HALLAZGOS))
+    # v10.4.1 (tarea C): el cortacircuitos cuenta fallos SEGUIDOS; un lote que
+    # responde (aunque sea con 0 hallazgos) reinicia la cuenta.
+    fallos_seguidos = 0
     for n, lote in enumerate(lotes, 1):
         cacheados: list[dict] = []
         pendientes: list[dict] = []
@@ -157,6 +164,7 @@ def extraer_hallazgos(fragmentos: list[dict], conn=None) -> list[dict]:
                         "objetivo de la investigación, pero extrae TODOS los "
                         "hechos genealógicos que aparezcan, también de otras "
                         "personas.\n\n")
+            fallo_lote = False
             try:
                 respuesta = chat_json(
                     MODELO_FASE2,
@@ -164,12 +172,42 @@ def extraer_hallazgos(fragmentos: list[dict], conn=None) -> list[dict]:
                     contexto + json.dumps(payload, ensure_ascii=False),
                     json_schema=JSON_SCHEMA_HALLAZGOS,
                     schema_name="hallazgos_genealogicos",
+                    # v10.4.1 (tarea C): techo e intentos PROPIOS de fase 2
+                    # (ver config.TIMEOUT_LLM_FASE2). Un lote = 1 fragmento
+                    # (LOTE_HALLAZGOS), así que la respuesta esperada es
+                    # ~3x más corta que con lotes de 3.
+                    timeout=TIMEOUT_LLM_FASE2,
+                    intentos=INTENTOS_FASE2,
+                    # v10.4.1 (E): techo de salida -> coste máximo del
+                    # intento calculable y sin respuestas desbocadas.
+                    max_tokens=MAX_TOKENS_FASE2,
                 )
             except PresupuestoExcedido:
                 raise
             except Exception as e:
                 ui.log_warn(f"lote {n} falló: {str(e)[:100]}")
                 respuesta = []
+                fallo_lote = True
+            if fallo_lote:
+                # v10.4.1 (tarea C) — CORTACIRCUITOS. En el log real del
+                # 12/09 el modelo estaba saturado y se quemaron 27 min en 36
+                # intentos de 12 lotes que nunca respondieron (y cada intento
+                # abandonado se factura: ver utils/llm.py). Si fallan N lotes
+                # SEGUIDOS no es un lote concreto: es el modelo o su cuota.
+                # Se corta, se declara la extracción PARCIAL y lo que quede se
+                # recupera con --fase 2 (la caché de hallazgos_por_hash evita
+                # repagar lo ya extraído).
+                fallos_seguidos += 1
+                if fallos_seguidos >= LOTES_FALLIDOS_CORTE:
+                    ui.log_error(
+                        f"extracción PARCIAL: {LOTES_FALLIDOS_CORTE} lotes "
+                        f"seguidos fallidos (el modelo de fase 2 no responde);"
+                        f" se cortan los {len(lotes) - n} lotes que quedaban. "
+                        f"Reanuda con 'python main.py --fase 2': la caché no "
+                        f"repite lo ya extraído.")
+                    break
+            else:
+                fallos_seguidos = 0
             if isinstance(respuesta, dict):
                 respuesta = respuesta.get("hallazgos", [])
             if isinstance(respuesta, list):
@@ -205,7 +243,14 @@ def extraer_hallazgos(fragmentos: list[dict], conn=None) -> list[dict]:
 
 def consolidar(datos_familia: dict, hallazgos: list[dict]) -> dict:
     """GLM 5.2 cruza los hallazgos con la memoria familiar. Si hay muchos
-    hallazgos, consolida por partes y fusiona."""
+    hallazgos, consolida por partes y fusiona.
+
+    v10.4.1 (tarea C): con techo (TIMEOUT_LLM_FASE2) e intentos
+    (INTENTOS_FASE2) propios de fase 2. La consolidación es la llamada MÁS
+    GRANDE de la noche (todos los hallazgos + toda la memoria familiar en un
+    prompt) y en el log del 12/09 murió 3 veces seguidas a 45 s: es
+    exactamente la llamada que más necesita el techo largo.
+    """
     if len(hallazgos) <= LOTE_CONSOLIDACION:
         user = json.dumps({
             "arbol_conocido": datos_familia,
@@ -213,7 +258,10 @@ def consolidar(datos_familia: dict, hallazgos: list[dict]) -> dict:
         }, ensure_ascii=False)
         return chat_json(MODELO_FASE2, SYSTEM_PROMPT_CONSOLIDACION, user,
                          json_schema=JSON_SCHEMA_CONSOLIDACION,
-                         schema_name="arbol_consolidado")
+                         schema_name="arbol_consolidado",
+                         timeout=TIMEOUT_LLM_FASE2,
+                         intentos=INTENTOS_FASE2,
+                         max_tokens=MAX_TOKENS_FASE2)
 
     mitad = len(hallazgos) // 2
     ui.log("Consolidando por partes...")
@@ -223,7 +271,10 @@ def consolidar(datos_familia: dict, hallazgos: list[dict]) -> dict:
                      json.dumps({"informe_a": a, "informe_b": b},
                                 ensure_ascii=False),
                      json_schema=JSON_SCHEMA_CONSOLIDACION,
-                     schema_name="arbol_consolidado")
+                     schema_name="arbol_consolidado",
+                     timeout=TIMEOUT_LLM_FASE2,
+                     intentos=INTENTOS_FASE2,
+                     max_tokens=MAX_TOKENS_FASE2)
 
 
 # ===================== VERIFICACIÓN BIOLÓGICA ============================

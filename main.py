@@ -43,9 +43,11 @@ import json
 from datetime import datetime
 
 from config import (BASE_DIR, ESTADO_PATH, FAMILIA_JSON_PATH, HASHES_CORPUS,
-                    HALLAZGOS_JSON, INFORME_FASE1, MAX_STEPS, MODELO_FASE1,
+                    HALLAZGOS_JSON, INFORME_FASE1, INTENTOS_FASE2,
+                    LOTE_HALLAZGOS, MAX_STEPS, MODELO_FASE1,
                     MODELO_FASE2, OCR_BACKEND, OCR_LLAMACPP_FAMILIA,
-                    OCR_MAX_PAGINAS_LOCAL, REFINADO_JSON, SALIDA_JSON, VERSION,
+                    OCR_MAX_PAGINAS_LOCAL, REFINADO_JSON, SALIDA_JSON,
+                    TIMEOUT_LLM, TIMEOUT_LLM_FASE2, VERSION,
                     _limpiar_claves, normalizar, sha256_corto, get_db)
 from agent.evidencia import (NIVEL_CANDIDATO_FUERTE, NIVEL_COINCIDENCIA_DEBIL,
                              NIVEL_CONFIRMADO, reclasificar_arbol)
@@ -633,6 +635,13 @@ def main() -> None:
                             else "SIN TOPE (ojo)"),
         "personas": args.personas or "(todas las de la frontera)",
         "sin_cache": args.sin_cache,
+        # v10.4.1 (tarea C): los techos de tiempo EFECTIVOS, en la cabecera.
+        # El log del 12/09 decía "no respondió en 45.0s" y no había forma de
+        # saber de dónde salía ese 45 sin abrir config.py y .env.
+        "timeout_llm": TIMEOUT_LLM,
+        "timeout_llm_fase2": TIMEOUT_LLM_FASE2,
+        "intentos_fase2": INTENTOS_FASE2,
+        "lote_hallazgos": LOTE_HALLAZGOS,
         "OCR_BACKEND": OCR_BACKEND,
         "OCR_LLAMACPP_FAMILIA": OCR_LLAMACPP_FAMILIA,
         "OCR_MAX_PAGINAS_LOCAL": OCR_MAX_PAGINAS_LOCAL,
