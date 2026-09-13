@@ -25,6 +25,7 @@ import re
 import sqlite3
 import threading
 import unicodedata
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -666,6 +667,82 @@ PRECIO_MILLON_TOKENS = {
     "deepseek/deepseek-v4-flash-vision-exp": {"entrada": 0.22, "salida": 0.66},
 }
 PRECIO_POR_DEFECTO = {"entrada": 1.0, "salida": 3.0}
+
+# ==================== v10.4.1 — PRECIOS VIVOS DE OPENROUTER ==================
+# La tabla de arriba es la REFERENCIA escrita a mano (tarifa PUNTA cuando el
+# modelo tiene tarifa horaria). Desde v10.4.1, cada ejecución que puede gastar
+# consulta el catálogo público de OpenRouter al arrancar y usa el precio REAL
+# de cada modelo configurado, multiplicado por un margen de seguridad (ver
+# agent/gedcom.consultar_precios_vivos y main._fijar_precios_del_dia).
+# Motivo: en la noche del 12/09 el bot contaba $0.1344 y OpenRouter cobró
+# $0.38; parte del desfase eran los intentos abandonados (tarea E) y parte, el
+# precio de partida. Si la consulta falla o tarda más de PRECIO_TIMEOUT_S, se
+# sigue con la tabla de config: NUNCA se arranca sin precio.
+#
+# MARGEN_PRECIO_SEGURIDAD: colchón sobre el precio vivo (1.1 = +10 %). Es
+# deliberadamente conservador: si la tarifa horaria entra en punta a mitad de
+# la noche o el proveedor sube el precio, el tope de --presupuesto-max sigue
+# por delante del gasto. Overridable en .env.
+MARGEN_PRECIO_SEGURIDAD = float(os.getenv("MARGEN_PRECIO_SEGURIDAD", "1.1"))
+# Tiempo máximo que se espera al catálogo al arrancar (una sola petición, sin
+# reintentos). Si expira, se usa la tabla de config y se avisa.
+PRECIO_TIMEOUT_S = float(os.getenv("PRECIO_TIMEOUT_S", "5.0"))
+
+# Precios vivos YA con el margen aplicado ({modelo: {entrada, salida}}) y su
+# procedencia. Vacíos = se usa la tabla de config.py. Los rellena
+# fijar_precios_vivos() al arrancar una ejecución que gasta.
+PRECIOS_VIVOS: dict[str, dict[str, float]] = {}
+PRECIOS_VIVOS_META: dict = {}
+
+
+def precio_activo(modelo: str) -> dict:
+    """Precio por millón de tokens que hay que usar AHORA para `modelo`.
+
+    El vivo (consultado al arrancar, con margen) si se pudo leer; si no, la
+    tabla de config.py. NUNCA devuelve nada vacío: el último recurso es
+    PRECIO_POR_DEFECTO, caro a propósito (mejor quedarse corto con el gasto
+    que pasarse del tope de --presupuesto-max).
+    """
+    vivo = PRECIOS_VIVOS.get(modelo)
+    if vivo:
+        return vivo
+    return PRECIO_MILLON_TOKENS.get(modelo, PRECIO_POR_DEFECTO)
+
+
+def fijar_precios_vivos(precios: dict[str, dict[str, float]],
+                        margen: float | None = None,
+                        hora: str | None = None) -> dict:
+    """Aplica el margen a los precios vivos y los deja listos para el estimador.
+
+    `precios` viene en USD por MILLÓN de tokens ({modelo: {entrada, salida}}),
+    tal y como los devuelve agent/gedcom.consultar_precios_vivos. Devuelve el
+    meta usado (margen, hora, modelos) para poder dejarlo escrito en el log.
+    Ignora las entradas incompletas: ante la duda, mejor la tabla de config que
+    un precio a medias.
+    """
+    global PRECIOS_VIVOS, PRECIOS_VIVOS_META
+    margen_efectivo = (MARGEN_PRECIO_SEGURIDAD if margen is None
+                       else float(margen))
+    PRECIOS_VIVOS = {
+        modelo: {"entrada": float(p["entrada"]) * margen_efectivo,
+                 "salida": float(p["salida"]) * margen_efectivo}
+        for modelo, p in (precios or {}).items()
+        if isinstance(p, dict) and "entrada" in p and "salida" in p
+    }
+    PRECIOS_VIVOS_META = {
+        "margen": margen_efectivo,
+        "hora": hora or datetime.now().strftime("%H:%M:%S"),
+        "modelos": sorted(PRECIOS_VIVOS),
+    }
+    return dict(PRECIOS_VIVOS_META)
+
+
+def limpiar_precios_vivos() -> None:
+    """Vuelve a la tabla de config.py (arranque limpio, tests, fallback)."""
+    global PRECIOS_VIVOS, PRECIOS_VIVOS_META
+    PRECIOS_VIVOS, PRECIOS_VIVOS_META = {}, {}
+
+
 # v10.4.1 (tarea E) — TOPE DE SALIDA por llamada. Es la palanca que convierte
 # el coste de un intento en algo CALCULABLE antes de enviarlo: coste máximo =
 # (tokens de entrada, que ya conocemos porque el prompt lo escribimos

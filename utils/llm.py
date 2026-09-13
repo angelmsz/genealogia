@@ -40,11 +40,10 @@ from openai import OpenAI
 
 from config import (BASE_DIR, FACTOR_COSTE_ABANDONADO, MAX_TOKENS_ESTIMADO,
                     MODELO_FASE1, MODELO_FASE2,
-                    OPENROUTER_API_KEY, PRECIO_MILLON_TOKENS,
-                    PRECIO_POR_DEFECTO, REASONING_ACTIVADO, TIMEOUT_LLM,
+                    OPENROUTER_API_KEY, REASONING_ACTIVADO, TIMEOUT_LLM,
                     JSON_SCHEMA_VARIANTES,
                     SYSTEM_PROMPT_VARIANTES, DB_LOCK, MAX_REINTENTOS_LLM,
-                    normalizar, sin_tildes,
+                    normalizar, precio_activo, sin_tildes,
                     extraer_json_de_respuesta)
 from utils import ui
 
@@ -126,7 +125,9 @@ class Gasto:
         honesto sobre qué es medido y qué estimado.
         """
         with self._lock:
-            precio = PRECIO_MILLON_TOKENS.get(modelo, PRECIO_POR_DEFECTO)
+            # v10.4.1 — PRECIO ACTIVO: el vivo de OpenRouter (con margen) si la
+            # ejecución lo pudo consultar al arrancar; si no, la tabla de config.
+            precio = precio_activo(modelo)
             pt, ct = self._tokens_usage(usage)
             estimado = False
             if pt is None:
@@ -192,7 +193,9 @@ class Gasto:
         esta suma se supera el tope (parada segura: el llamador lo propaga).
         """
         with self._lock:
-            precio = PRECIO_MILLON_TOKENS.get(modelo, PRECIO_POR_DEFECTO)
+            # v10.4.1 — mismo precio activo que registrar_llamada (vivo x margen
+            # si se consultó; si no, la tabla de config.py).
+            precio = precio_activo(modelo)
             pt = max(1, len(texto_entrada or "") // 4)
             ct = int(max_tokens_salida or MAX_TOKENS_ESTIMADO)
             coste = ((pt / 1_000_000 * precio["entrada"]

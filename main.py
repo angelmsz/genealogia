@@ -44,11 +44,14 @@ from datetime import datetime
 
 from config import (BASE_DIR, ESTADO_PATH, FAMILIA_JSON_PATH, HASHES_CORPUS,
                     HALLAZGOS_JSON, INFORME_FASE1, INTENTOS_FASE2,
-                    LOTE_HALLAZGOS, MAX_STEPS, MODELO_FASE1,
+                    LOTE_HALLAZGOS, MARGEN_PRECIO_SEGURIDAD, MAX_STEPS,
+                    MODELO_FASE1,
                     MODELO_FASE2, OCR_BACKEND, OCR_LLAMACPP_FAMILIA,
-                    OCR_MAX_PAGINAS_LOCAL, REFINADO_JSON, SALIDA_JSON,
+                    OCR_MAX_PAGINAS_LOCAL, PRECIO_TIMEOUT_S, REFINADO_JSON,
+                    SALIDA_JSON,
                     TIMEOUT_LLM, TIMEOUT_LLM_FASE2, VERSION,
-                    _limpiar_claves, normalizar, sha256_corto, get_db)
+                    _limpiar_claves, fijar_precios_vivos, limpiar_precios_vivos,
+                    normalizar, precio_activo, sha256_corto, get_db)
 from agent.evidencia import (NIVEL_CANDIDATO_FUERTE, NIVEL_COINCIDENCIA_DEBIL,
                              NIVEL_CONFIRMADO, reclasificar_arbol)
 from agent.fase1 import (ejecutar_fase1, generar_objetivos_busqueda,
@@ -57,7 +60,8 @@ from agent.fase2 import fase2
 from agent.frontera import (calcular_frontera, cargar_estado, cargar_familia,
                               cometer_confirmaciones, generar_informe_progreso,
                               guardar_estado, hash_evidencia, mostrar_frontera)
-from agent.gedcom import (diagnostico, exportar_gedcom,
+from agent.gedcom import (consultar_precios_vivos, diagnostico,
+                           exportar_gedcom,
                            generar_candidatos_ensenada,
                            generar_solicitudes, importar_documentos_propios)
 from scrapers.archivos import probar_conectores
@@ -212,6 +216,42 @@ def fase1(args, conn, datos: dict | None = None) -> None:
     else:
         ui.log_ok(f"Fase 1 terminada: {len(corpus)} fragmentos en "
                   f"{SALIDA_JSON}")
+
+
+# ==================== v10.4.1 — PRECIOS VIVOS ANTES DE GASTAR ==============
+
+def _fijar_precios_del_dia() -> None:
+    """Consulta a OpenRouter el precio REAL de los modelos configurados y lo
+    deja fijado para el estimador de coste y para --presupuesto-max.
+
+    Se llama al arrancar cualquier ejecución que pueda gastar (fase 1, fase 2 y
+    --ciclo). NUNCA inventa un precio ni deja la ejecución sin precio: si la
+    consulta falla o tarda más de PRECIO_TIMEOUT_S, se sigue con la tabla de
+    config.py (que es la tarifa conservadora) y se avisa con [!] en pantalla y
+    en el log. Qué precio se usó queda escrito en el log de la ejecución: es lo
+    que permite comparar después con la "Activity" de OpenRouter.
+    """
+    modelos = [MODELO_FASE1, MODELO_FASE2]
+    try:
+        precios, motivo = consultar_precios_vivos(modelos,
+                                                  timeout=PRECIO_TIMEOUT_S)
+    except Exception as e:      # la consulta NO puede tumbar una investigación
+        precios, motivo = {}, f"{type(e).__name__}: {str(e)[:110]}"
+    if precios:
+        meta = fijar_precios_vivos(precios, MARGEN_PRECIO_SEGURIDAD)
+        cola = f" — {motivo}" if motivo else ""
+        ui.log(f"precio usado: VIVO (consultado {meta['hora']}) x margen "
+               f"{meta['margen']:g}{cola}")
+        detalle = " · ".join(
+            f"{modelo}: ${precio_activo(modelo)['entrada']:.4f}/"
+            f"${precio_activo(modelo)['salida']:.4f}"
+            for modelo in meta["modelos"])
+        if detalle:
+            ui.log(f"    (por millón de tokens, ya con margen → {detalle})")
+        return
+    limpiar_precios_vivos()
+    ui.log_warn(f"precio usado: CONFIG (consulta falló: "
+                f"{motivo or 'sin datos'})")
 
 
 # ============================== AUTOPILOTO =================================
@@ -746,6 +786,13 @@ def main() -> None:
 
     # --- flujo principal: fase 1 + fase 2, o --ciclo N autopiloto ---
     ui.separador("Agente de investigación genealógica v10.2")
+    # v10.4.1 — PRECIOS VIVOS: antes de gastar un céntimo se pregunta a
+    # OpenRouter cuánto cuesta de verdad cada modelo configurado; el estimador
+    # y el tope de --presupuesto-max usarán ese precio (x MARGEN_PRECIO_SEGURIDAD).
+    # Si no se puede consultar, se usa la tabla de config y se avisa. Los modos
+    # que no gastan tokens (--diagnostico, --frontera, --aceptar, --probar-ocr,
+    # --reclasificar...) salen ANTES de esta línea: no pagan la consulta.
+    _fijar_precios_del_dia()
     conn = get_db()
     try:
         if args.ciclo > 0:

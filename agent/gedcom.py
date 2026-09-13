@@ -835,6 +835,113 @@ def importar_documentos_propios() -> int:
 
 # ============================== DIAGNÓSTICO ===============================
 
+# ========= v10.4.1 — PRECIOS VIVOS DE OPENROUTER (una sola fuente) =========
+# El catálogo público de OpenRouter trae, por modelo, su tarifa real
+# ("pricing": {"prompt": ..., "completion": ...} en USD por TOKEN; y, si el
+# modelo tiene tarifa por franjas horarias, otras tarifas en
+# "pricing.overrides" — ver _precio_peor_caso). Se consulta desde DOS sitios,
+# así que el HTTP y el parseo viven aquí una sola vez:
+#   - `--diagnostico`: comprueba que la tabla de config.py no infravalore.
+#   - el arranque de cada ejecución que gasta (main._fijar_precios_del_dia):
+#     fija el precio que usarán el estimador de coste y --presupuesto-max.
+# Si algo falla NO se inventa ningún precio: quien llama usa la tabla de config.
+
+OPENROUTER_CATALOGO_URL = "https://openrouter.ai/api/v1/models"
+
+
+def catalogo_openrouter(timeout: float = 30.0) -> list[dict]:
+    """Catálogo de modelos de OpenRouter (GET /api/v1/models).
+
+    Lanza si la consulta falla (timeout, HTTP, JSON roto): el manejo del fallo
+    es de quien llama, que es quien sabe con qué precio seguir.
+    """
+    r = SESSION.get(OPENROUTER_CATALOGO_URL, timeout=timeout)
+    r.raise_for_status()
+    return (r.json() or {}).get("data") or []
+
+
+def _precio_peor_caso(pricing: dict) -> tuple[float, float]:
+    """(entrada, salida) por TOKEN que OpenRouter puede cobrar como máximo.
+
+    El catálogo no siempre trae un precio único: `pricing.overrides` lista las
+    franjas horarias (día de la semana + minutos UTC) con su tarifa. El caso
+    real de deepseek/deepseek-v4.1-flash (consultado el 2026-09-13) trae base
+    valle 0.00000015/0.0000006 ($0.15/$0.60 por millón) y franjas PUNTA de
+    0.0000003/0.0000012 ($0.30/$1.20, que es exactamente la tabla de config.py).
+
+    Durante una noche se puede caer en cualquiera de las franjas, así que se
+    toma el MÁXIMO de todas ellas: es el único valor que NO infravalora el
+    gasto, y es la política que ya seguía la tabla escrita a mano. No se
+    interpretan los horarios (ni zonas horarias ni días): basta el máximo.
+    """
+    candidatos: list[dict] = [pricing]
+    candidatos += [o for o in (pricing.get("overrides") or [])
+                   if isinstance(o, dict)]
+    entradas: list[float] = []
+    salidas: list[float] = []
+    for candidato in candidatos:
+        try:
+            entradas.append(float(candidato["prompt"]))
+            salidas.append(float(candidato["completion"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not entradas or not salidas:
+        raise ValueError("el catálogo no traía precios legibles")
+    return max(entradas), max(salidas)
+
+
+def _precios_del_catalogo(catalogo: list[dict],
+                          modelos: list[str]) -> tuple[dict, str]:
+    """(precios por millón de tokens, motivo) de `modelos` en un catálogo.
+
+    Función PURA (sin red): la comparten --diagnostico y el arranque de las
+    ejecuciones que gastan, y se puede probar con un catálogo de mentira.
+    `motivo` queda vacío si se encontraron todos; si falta alguno, lo nombra
+    (y sigue devolviendo los que sí estaban). Nunca inventa un precio.
+    """
+    por_id = {m.get("id"): (m.get("pricing") or {}) for m in catalogo
+              if isinstance(m, dict)}
+    precios: dict[str, dict[str, float]] = {}
+    faltan: list[str] = []
+    for modelo in modelos:
+        pricing = por_id.get(modelo)
+        if pricing is None:
+            faltan.append(modelo)
+            continue
+        try:
+            peor_in, peor_out = _precio_peor_caso(pricing)
+        except ValueError:
+            faltan.append(modelo)
+            continue
+        precios[modelo] = {"entrada": peor_in * 1_000_000,
+                           "salida": peor_out * 1_000_000}
+    if not precios:
+        return {}, (f"sin precio en el catálogo: {', '.join(faltan)}"
+                    if faltan else "el catálogo no traía precios")
+    return precios, (f"sin precio en el catálogo: {', '.join(faltan)}"
+                     if faltan else "")
+
+
+def consultar_precios_vivos(modelos, timeout: float = 5.0) -> tuple[dict, str]:
+    """Precios REALES por millón de tokens de `modelos`, leídos al catálogo.
+
+    Devuelve ({modelo: {"entrada": x, "salida": y}}, motivo). Si la consulta
+    falla o agota `timeout`, devuelve ({}, motivo del fallo): NUNCA un precio
+    inventado ni una ejecución sin precio, porque quien llama cae a la tabla de
+    config.py (que es conservadora) y lo avisa con un [!].
+    """
+    if isinstance(modelos, str):
+        modelos = [modelos]
+    modelos = [m for m in (modelos or []) if m]
+    if not modelos:
+        return {}, "no se pidió ningún modelo"
+    try:
+        catalogo = catalogo_openrouter(timeout=timeout)
+    except Exception as e:      # timeout, HTTP, JSON roto: todo al mismo saco
+        return {}, f"{type(e).__name__}: {str(e)[:110]}"
+    return _precios_del_catalogo(catalogo, modelos)
+
+
 def diagnostico(test_llm: bool = False) -> int:
     """Prueba pequeña antes de lanzar la investigación completa: comprueba
     claves, base de datos, familia, modelos reales en OpenRouter y el
@@ -881,21 +988,15 @@ def diagnostico(test_llm: bool = False) -> int:
 
     ui.cabecera("4. Existencia de los modelos en OpenRouter")
     try:
-        r = SESSION.get("https://openrouter.ai/api/v1/models", timeout=30)
-        r.raise_for_status()
-        catalogo = r.json()["data"]
+        # v10.4.1: la descarga del catálogo y el parseo de precios salen de las
+        # funciones compartidas (catalogo_openrouter / _precios_del_catalogo),
+        # que son las MISMAS que usa el arranque de las ejecuciones que gastan
+        # main._fijar_precios_del_dia). Una sola fuente de verdad: si OpenRouter
+        # cambia el formato, se arregla en un sitio.
+        catalogo = catalogo_openrouter(timeout=30)
         ids = {m["id"] for m in catalogo}
-        # v10.4.1 (tarea E): la descarga del catálogo YA trae los precios
-        # vivos (pricing.prompt / pricing.completion). Aprovecharla para
-        # comprobar que la tabla de config.py no INFRAVALORA el gasto: si el
-        # precio del proveedor es más alto que el de la tabla, el estimador y
-        # --presupuesto-max se quedan cortos (que es exactamente lo que pasó:
-        # $0.1344 contados frente a $0.38 cobrados). Solo se avisa en la
-        # dirección peligrosa: si la tabla es MÁS ALTA que el precio vivo
-        # (p. ej. porque se apunta la tarifa PUNTA de un modelo con tarifa
-        # horaria), el estimador se queda largo y eso es lo que queremos.
-        precios_vivos = {m.get("id"): (m.get("pricing") or {})
-                         for m in catalogo}
+        precios_vivos, _ = _precios_del_catalogo(
+            catalogo, [MODELO_FASE1, MODELO_FASE2])
         for etiqueta, modelo in (("fase 1", MODELO_FASE1), ("fase 2", MODELO_FASE2)):
             if modelo in ids:
                 ui.log_ok(f"{modelo} ({etiqueta}) existe")
@@ -908,20 +1009,18 @@ def diagnostico(test_llm: bool = False) -> int:
                     ui.log(f"       alternativas: {', '.join(similares)}")
         for etiqueta, modelo in (("fase 1", MODELO_FASE1), ("fase 2", MODELO_FASE2)):
             tabla = PRECIO_MILLON_TOKENS.get(modelo)
-            vivo = precios_vivos.get(modelo) or {}
+            vivo = precios_vivos.get(modelo)
             if not tabla:
                 ui.log_warn(f"{modelo} ({etiqueta}) no está en "
                             f"PRECIO_MILLON_TOKENS: se usaría el precio por "
                             f"defecto (${PRECIO_POR_DEFECTO['entrada']}/"
                             f"${PRECIO_POR_DEFECTO['salida']} por millón)")
                 continue
-            try:
-                vivo_in = float(vivo.get("prompt")) * 1_000_000
-                vivo_out = float(vivo.get("completion")) * 1_000_000
-            except (TypeError, ValueError):
+            if vivo is None:
                 ui.log_warn(f"{modelo} ({etiqueta}): OpenRouter no devolvió "
                             f"precios legibles para comprobar la tabla")
                 continue
+            vivo_in, vivo_out = vivo["entrada"], vivo["salida"]
             infras = []
             if tabla["entrada"] < vivo_in * 0.8:
                 infras.append(f"entrada ${tabla['entrada']:.4f} < "
