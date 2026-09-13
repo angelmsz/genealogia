@@ -228,7 +228,7 @@ else:
 
 # v10.4 — versión del proyecto (la escriben la cabecera del registro de
 # ejecución y los informes; los carteles de main/lanzador son texto aparte).
-VERSION = "10.4"
+VERSION = "10.4.1"
 
 # v10.4 (P0) — observabilidad: registro de ejecución ("caja negra").
 # Todo lo que sale por consola se escribe también en logs/agente_*.log, con
