@@ -47,6 +47,7 @@ from config import (BASE_DIR, DELAY_DESCARGAS, FAMILIA_JSON_PATH,
                     marcar_buscado, marcar_vista, normalizar, sha256_corto,
                     sin_tildes, trocear, variantes_compuesto,
                     ya_buscado, ya_vista,
+                    sesiones_hilo_limpias,
                     EXPANSION_GEO_INTENTOS)
 from scrapers.archivos import recolectar
 from scrapers.web import buscar_tavily, descargar_texto
@@ -330,7 +331,14 @@ def ejecutar_fase1(objetivo: dict, fuentes: list[str], conn, max_steps: int,
             return url, meta, texto, motivo
 
         paginas = []
-        with ThreadPoolExecutor(max_workers=N_HILOS_DESCARGA) as executor:
+        # v10.4.2 (arreglo 2): las descargas van en N_HILOS_DESCARGA hilos y cada
+        # hilo usa SU sesión HTTP (config.sesion()). Al salir del bloque el
+        # executor ya ha hecho join de esos hilos, y entonces se cierran sus
+        # sesiones: sin esto quedarían pools de conexiones abiertos (fugas) hasta
+        # el final del proceso. El orden de los dos `with` es lo que garantiza
+        # que el cierre ocurre DESPUÉS del apagado del executor.
+        with sesiones_hilo_limpias(), \
+                ThreadPoolExecutor(max_workers=N_HILOS_DESCARGA) as executor:
             for url, meta, texto, motivo in executor.map(
                     _descargar, list(candidatas.items())):
                 urls_locales.add(url)

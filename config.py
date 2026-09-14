@@ -18,6 +18,7 @@ Reúne:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -863,17 +864,144 @@ MAX_TOKENS_ESTIMADO = int(os.getenv("MAX_TOKENS_ESTIMADO", "4096"))
 FACTOR_COSTE_ABANDONADO = float(os.getenv("FACTOR_COSTE_ABANDONADO", "1.0"))
 
 # ============================== SESSION HTTP ===============================
+# v10.4.2 (arreglo 2) — UNA SESIÓN POR HILO.
+#
+# Antes había UNA sola `requests.Session` compartida por todo el proceso. No es
+# thread-safe (el pool de conexiones y las cookies se tocan desde varios hilos)
+# y había un cierre a traición: scrapers/hispagen.py llama a SESSION.close()
+# para deshacerse de sockets keep-alive envenenados, y ese close, ejecutado
+# desde un hilo de descarga, cerraba el pool que OTROS hilos estaban usando en
+# ese momento (agent/fase1.py descarga con N_HILOS_DESCARGA=3 hilos). De ahí
+# errores cruzados entre hilos: "Connection aborted" en una descarga que no
+# tenía nada que ver, y respuestas de un documento atribuidas a otro.
+#
+# Ahora cada hilo tiene SU sesión, creada en el primer uso y registrada para
+# poder cerrarla cuando su hilo ya no la necesita (ver
+# sesiones_hilo_limpias()). Los sitios de llamada NO cambian: siguen usando
+# `SESSION.get(...)`, que ahora es un proxy que despacha a la sesión del hilo
+# actual.
 
-SESSION = requests.Session()
-SESSION.headers.update({
-    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                   "AppleWebKit/537.36 (KHTML, like Gecko) "
-                   "Chrome/125.0.0.0 Safari/537.36"),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-})
+_HILO_LOCAL = threading.local()
+# id(hilo) -> sesión. Hace falta el registro porque un hilo que ya terminó no
+# puede cerrar la sesión que creó: lo tiene que hacer otro por él.
+_SESIONES: dict[int, requests.Session] = {}
+_SESIONES_LOCK = threading.Lock()
+
+
+def _nueva_sesion() -> requests.Session:
+    """Crea una sesión HTTP con las cabeceras del proyecto (una por hilo)."""
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/125.0.0.0 Safari/537.36"),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    })
+    return s
+
+
+def sesion() -> requests.Session:
+    """La sesión HTTP del HILO actual (se crea la primera vez que se pide)."""
+    s = getattr(_HILO_LOCAL, "sesion", None)
+    if s is None:
+        s = _nueva_sesion()
+        _HILO_LOCAL.sesion = s
+        with _SESIONES_LOCK:
+            _SESIONES[threading.get_ident()] = s
+    return s
+
+
+def cerrar_sesion_del_hilo() -> bool:
+    """Cierra la sesión del hilo actual (la siguiente petición creará otra).
+
+    Es lo que hace hispagen.py para tirar sockets keep-alive envenenados: con
+    sesiones por hilo, ese cierre ya no puede afectar a los demás hilos.
+    Devuelve False si este hilo no tenía sesión.
+    """
+    s = getattr(_HILO_LOCAL, "sesion", None)
+    if s is None:
+        return False
+    _HILO_LOCAL.sesion = None
+    with _SESIONES_LOCK:
+        _SESIONES.pop(threading.get_ident(), None)
+    try:
+        s.close()
+    except Exception:
+        pass
+    return True
+
+
+def cerrar_sesiones_hijas() -> int:
+    """Cierra las sesiones de OTROS hilos y devuelve cuántas cerró.
+
+    Se llama cuando esos hilos YA han terminado (p. ej. al apagar el
+    ThreadPoolExecutor de fase 1): nadie las va a usar y sus conexiones
+    quedarían abiertas (fuga de sockets) hasta que acabara el proceso.
+    """
+    actual = threading.get_ident()
+    with _SESIONES_LOCK:
+        ajenas = [(ident, s) for ident, s in _SESIONES.items()
+                  if ident != actual]
+        for ident, _ in ajenas:
+            _SESIONES.pop(ident, None)
+    for _, s in ajenas:
+        try:
+            s.close()
+        except Exception:
+            pass
+    return len(ajenas)
+
+
+def sesiones_abiertas() -> int:
+    """Cuántas sesiones tiene registradas el proceso (tests y diagnóstico)."""
+    with _SESIONES_LOCK:
+        return len(_SESIONES)
+
+
+@contextlib.contextmanager
+def sesiones_hilo_limpias():
+    """Cierra las sesiones de los hilos hijos al salir del bloque (sin fugas).
+
+    Uso:  ``with sesiones_hilo_limpias(), ThreadPoolExecutor(...) as ex:``
+    El orden de la línea importa: así el executor se apaga (join de todos sus
+    hilos) ANTES de que se cierren las sesiones de esos hilos.
+    """
+    try:
+        yield
+    finally:
+        cerrar_sesiones_hijas()
+
+
+class _SesionHilo:
+    """Proxy de la sesión HTTP: cada llamada va a la sesión del hilo actual.
+
+    Existe para que los sitios de llamada (scrapers/*, agent/gedcom.py) no
+    cambien: siguen haciendo `SESSION.get(...)`, `SESSION.post(...)`,
+    `SESSION.cookies` o `SESSION.close()`, y todo actúa sobre la sesión de SU
+    hilo. Un `SESSION.close()` solo cierra la del hilo que lo llama.
+    """
+
+    def get(self, *args, **kwargs):
+        return sesion().get(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        return sesion().post(*args, **kwargs)
+
+    def close(self):
+        """Cierra la sesión del hilo actual (ver cerrar_sesion_del_hilo)."""
+        return cerrar_sesion_del_hilo()
+
+    def __getattr__(self, nombre):
+        return getattr(sesion(), nombre)
+
+    def __repr__(self) -> str:
+        return f"<sesión HTTP por hilo (registradas: {sesiones_abiertas()})>"
+
+
+SESSION = _SesionHilo()
 
 # ============================== ANTI-INYECCIÓN ==============================
 
