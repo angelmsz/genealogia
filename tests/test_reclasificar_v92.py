@@ -27,6 +27,7 @@ import main as main_mod
 import utils.llm as llm_mod
 from agent.evidencia import (NIVEL_CANDIDATO_FUERTE, NIVEL_COINCIDENCIA_DEBIL,
                              NIVEL_CONFIRMADO)
+from tests.harness_aislado import lanzar
 
 URL = "http://archivodeejemplo.es/partida/1"
 CITA = "yo el cura bautice a Isidro Merillas Panero hijo de Nazario"
@@ -174,17 +175,20 @@ def test_sin_arbol_devuelve_none_sin_red(tmp_path, monkeypatch):
     assert not (tmp_path / "arbol_refinado.json.bak").exists()
 
 
-def test_flag_reclasificar_humo_proceso_real():
-    """`python main.py --reclasificar` contra el proyecto real (sin árbol
-    en esta copia): exit code 1 con el aviso amable, sin traceback. Esto
-    fija que el flag existe y está cableado al dispatch de main()."""
-    raiz = Path(__file__).resolve().parent.parent
-    env = {**os.environ,
-           "TAVILY_API_KEY": "clave-de-prueba",
-           "OPENROUTER_API_KEY": "clave-de-prueba"}
-    resultado = subprocess.run(
-        [sys.executable, "main.py", "--reclasificar"],
-        cwd=raiz, capture_output=True, text=True, timeout=120, env=env)
+def test_flag_reclasificar_humo_proceso_real(tmp_path):
+    """`python main.py --reclasificar` sobre un entorno AISLADO sin árbol:
+    exit code 1 con el aviso amable, sin traceback. Esto fija que el flag
+    existe y está cableado al dispatch de main().
+
+    v10.4.2 (lección del incidente del 13/09): antes se ejecutaba contra el
+    proyecto REAL y daba por hecho que en el disco del usuario NO había
+    `arbol_refinado.json`. En cuanto el fichero existía (una noche normal, o
+    al recuperar un backup) el test se ponía rojo sin que nada estuviera roto.
+    Ahora usa el harness aislado: BASE_DIR temporal, sin leer ni escribir nada
+    del usuario.
+    """
+    resultado = lanzar(["--reclasificar"], tmp_path,
+                       claves=("clave-de-prueba", "clave-de-prueba"))
     assert resultado.returncode == 1, resultado.stderr[-400:]
     assert "arbol_refinado.json" in (resultado.stdout + resultado.stderr)
     assert "Traceback" not in resultado.stderr

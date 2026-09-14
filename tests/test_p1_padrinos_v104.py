@@ -199,10 +199,20 @@ def test_commit_pasa_municipio_y_apellido_al_estado(tmp_path, monkeypatch):
     assert est["candidatos"][0]["municipio"] == "Salas"
 
 
-def test_frontera_prioriza_al_candidato_por_rareza_de_apellido():
+def test_frontera_prioriza_al_candidato_por_rareza_de_apellido(tmp_path,
+                                                              monkeypatch):
     """Antes, el apellido del candidato no llegaba nunca a la frontera: el
     término 1.5*rareza_apellido() valía 0 para todos y la prioridad era un
-    5.0 plano."""
+    5.0 plano.
+
+    v10.4.2 (lección del incidente del 13/09): el test llamaba a
+    calcular_frontera() sin aislar BASE_DIR, así que la frontera leía TAMBIÉN
+    los `arbol_hallazgos.json` / `arbol_refinado.json` REALES del usuario y el
+    número de candidatos dependía de lo que hubiera esa noche en el disco.
+    Ahora el BASE_DIR es temporal y el disco del usuario no se toca.
+    """
+    monkeypatch.setattr(frontera, "BASE_DIR", tmp_path)
+    (tmp_path / "arbol_hallazgos.json").write_text("[]", encoding="utf-8")
     estado_previo = {
         "ciclo": 1, "frontera": [], "investigados": [], "descartados": [],
         "profundidad": {},
