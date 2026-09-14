@@ -74,11 +74,23 @@ from config import (DELAY_DESCARGAS, MAX_CHARS_TEXTO,
                     OCR_PAGINAS_REINTENTOS, OCR_SERIALIZAR_SERVIDOR,
                     OCR_TMP_DIR, OCR_USE_GPU, REINTENTO_HEADLESS, SESSION,
                     TAVILY_API_KEY, DB_LOCK,
+                    ClavesAusentes, Perezoso, mensaje_claves_faltantes,
                     DOMINIOS_MANUSCRITOS, es_dominio_ignorado)
 from utils import ui
 from utils.llm import GASTO, PresupuestoExcedido
 
-tavily = TavilyClient(api_key=TAVILY_API_KEY)
+# v10.4.1 (arreglo 1): el cliente de Tavily se construye en el PRIMER uso,
+# no al importar. Antes se creaba aquí mismo y el paquete revienta si la
+# clave está vacía (el constructor la exige): importar scrapers.web —lo
+# hacen main, agent/fase1, lanzador...— obligaba a tener .env incluso para
+# comandos que no buscan en la web (--probar-ocr, --frontera, --aceptar).
+def _crear_cliente_tavily():
+    if not TAVILY_API_KEY:
+        raise ClavesAusentes(mensaje_claves_faltantes(["TAVILY_API_KEY"]))
+    return TavilyClient(api_key=TAVILY_API_KEY)
+
+
+tavily = Perezoso(_crear_cliente_tavily, "cliente Tavily")
 
 
 # ============================== TAVILY ======================================
@@ -101,6 +113,11 @@ def buscar_tavily(query: str, dominios=None, max_results: int = 5,
                 GASTO.busquedas_tavily += 1
             return resultado
         except PresupuestoExcedido:
+            raise
+        except ClavesAusentes:
+            # v10.4.1 (arreglo 1): sin clave de Tavily no hay nada que
+            # reintentar. Que el flujo muera con el mensaje claro en vez de
+            # devolver [] y seguir como si la web no tuviera nada.
             raise
         except Exception as e:
             if intento == 2:

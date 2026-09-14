@@ -50,8 +50,10 @@ from config import (BASE_DIR, ESTADO_PATH, FAMILIA_JSON_PATH, HASHES_CORPUS,
                     OCR_MAX_PAGINAS_LOCAL, PRECIO_TIMEOUT_S, REFINADO_JSON,
                     SALIDA_JSON,
                     TIMEOUT_LLM, TIMEOUT_LLM_FASE2, VERSION,
-                    _limpiar_claves, fijar_precios_vivos, limpiar_precios_vivos,
-                    normalizar, precio_activo, sha256_corto, get_db)
+                    _limpiar_claves, fijar_precios_vivos,
+                    limpiar_precios_vivos,
+                    normalizar, precio_activo, sha256_corto,
+                    validar_credenciales_api, get_db)
 from agent.evidencia import (NIVEL_CANDIDATO_FUERTE, NIVEL_COINCIDENCIA_DEBIL,
                              NIVEL_CONFIRMADO, reclasificar_arbol)
 from agent.fase1 import (ejecutar_fase1, generar_objetivos_busqueda,
@@ -603,6 +605,24 @@ def reclasificar_comando(base=None) -> dict | None:
     return tot
 
 
+# ==================== v10.4.1 — VALIDACIÓN DE CLAVES =======================
+
+def _claves_necesarias(fase: str, ciclo: int = 0) -> list[str]:
+    """Claves de API que necesita DE VERDAD este flujo (v10.4.1).
+
+    La fase 1 busca en la web (Tavily) y además filtra con el LLM; la fase 2
+    solo extrae y consolida con el LLM; con --ciclo se ejecutan las dos.
+    Pedir siempre las dos sería mentira: --fase 2 funciona sin Tavily, y
+    avisar de una clave que no se va a usar solo confunde a quien lo lee.
+    """
+    fases = "all" if ciclo > 0 else fase
+    claves: list[str] = []
+    if fases in ("1", "all"):
+        claves.append("TAVILY_API_KEY")
+    claves.append("OPENROUTER_API_KEY")
+    return claves
+
+
 # ============================== MAIN =======================================
 
 def main() -> None:
@@ -766,6 +786,9 @@ def main() -> None:
                                      args.sin_cache))
 
     if args.ensenada:
+        # v10.4.1 (arreglo 1): la Ensenada hipotetiza con el LLM y consulta
+        # archivos por HTTP, pero NO busca en la web: solo necesita OpenRouter.
+        validar_credenciales_api(["OPENROUTER_API_KEY"])
         generar_candidatos_ensenada()
         resumen_gasto()
         raise SystemExit(0)
@@ -787,6 +810,12 @@ def main() -> None:
         raise SystemExit(0)
 
     # --- flujo principal: fase 1 + fase 2, o --ciclo N autopiloto ---
+    # v10.4.1 (arreglo 1): PUNTO DE VALIDACIÓN de claves. Antes esto lo hacía
+    # el propio import de config.py con un SystemExit, así que también se
+    # caían los modos que no usan ninguna clave (--probar-ocr, --frontera,
+    # --aceptar...). Ahora se exigen SOLO las de este flujo, aquí y antes de
+    # la consulta de precios: si falta algo, no se gasta ni un céntimo.
+    validar_credenciales_api(_claves_necesarias(args.fase, args.ciclo))
     ui.separador("Agente de investigación genealógica v10.2")
     # v10.4.1 — PRECIOS VIVOS: antes de gastar un céntimo se pregunta a
     # OpenRouter cuánto cuesta de verdad cada modelo configurado; el estimador

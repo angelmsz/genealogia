@@ -78,6 +78,8 @@ REPO = Path(r"{raiz}")
 TMP = Path(r"{base}")
 sys.path.insert(0, str(REPO))
 
+{pre}
+
 import config                      # noqa: E402  (tras fijar sys.path)
 
 # --- AISLAMIENTO (ver tests/harness_aislado.py) ---
@@ -92,6 +94,33 @@ import main                        # noqa: E402  (lee config YA parcheado)
 
 sys.argv = ["main.py"] + {argv!r}
 main.main()
+'''
+
+_PLANTILLA_PROGRAMA = '''\
+"""Driver generado por tests/harness_aislado.py — NO editar a mano."""
+import sys
+from pathlib import Path
+
+REPO = Path(r"{raiz}")
+TMP = Path(r"{base}")
+sys.path.insert(0, str(REPO))
+
+{pre}
+
+import config                      # noqa: E402
+
+config.BASE_DIR = TMP
+config.TAVILY_API_KEY = {tavily!r}
+config.OPENROUTER_API_KEY = {openrouter!r}
+config.LOG_AGENTE = {log_agente!r}
+
+{extra}
+
+import importlib                   # noqa: E402
+
+programa = importlib.import_module({programa!r})
+sys.argv = [{programa!r}] + {argv!r}
+raise SystemExit(programa.main())
 '''
 
 
@@ -114,41 +143,55 @@ def huellas_de_estado(carpeta: Path | None = None,
 
 
 def escribir_driver(destino: Path, base: Path, argv: list[str], *,
-                    claves: tuple[str, str] = ("", ""),
+                    claves: tuple = ("", ""),
                     log_agente: bool = False,
-                    extra: str = "") -> Path:
+                    extra: str = "",
+                    pre: str = "",
+                    programa: str = "main") -> Path:
     """Escribe el script que el hijo ejecutará (parchea config y llama a main).
 
-    `claves` es (TAVILY, OPENROUTER): ("", "") simula "máquina sin .env";
+    `claves` es (TAVILY, OPENROUTER): ("", "") simula "clave vacía" y
+    (None, None) simula "no existe la variable" (máquina sin .env);
+    `programa` es el módulo del bot con función ``main()`` (por defecto
+    ``main``; también vale ``resumen_noche``);
+    `pre` se ejecuta ANTES de importar config: sirve para simular que no existe
+    el fichero .env (p. ej. anulando dotenv.load_dotenv);
     `extra` permite inyectar código (p. ej. un cliente LLM de mentira) entre
     el parcheo de config y la llamada a main."""
+    plantilla = _PLANTILLA_DRIVER if programa == "main" else _PLANTILLA_PROGRAMA
     destino.write_text(
-        _PLANTILLA_DRIVER.format(raiz=str(RAIZ), base=str(base), argv=argv,
-                                 tavily=claves[0], openrouter=claves[1],
-                                 log_agente=log_agente, extra=extra),
+        plantilla.format(raiz=str(RAIZ), base=str(base), argv=argv,
+                         tavily=claves[0], openrouter=claves[1],
+                         log_agente=log_agente, extra=extra, pre=pre,
+                         programa=programa),
         encoding="utf-8")
     return destino
 
 
 def lanzar(argv: list[str], tmp_path: Path, *,
-           claves: tuple[str, str] = ("", ""),
+           claves: tuple = ("", ""),
            con_log: bool = False,
            timeout: int = 300,
            extra: str = "",
+           pre: str = "",
+           programa: str = "main",
            cwd: Path | None = None) -> subprocess.CompletedProcess:
     """Lanza el bot en un entorno AISLADO y devuelve el CompletedProcess.
 
-    argv es la lista de argumentos de main.py (p. ej. ["--fase", "2"]).
+    argv es la lista de argumentos del programa (p. ej. ["--fase", "2"]).
     """
     tmp_path = Path(tmp_path)
     tmp_path.mkdir(parents=True, exist_ok=True)
     driver = escribir_driver(tmp_path / "_driver_aislado.py", tmp_path, argv,
-                            claves=claves, log_agente=con_log, extra=extra)
+                            claves=claves, log_agente=con_log, extra=extra,
+                            pre=pre, programa=programa)
     entorno = dict(os.environ)
     # El hijo no hereda .env ni el registro de logs del proyecto; además se
     # cierra la puerta por si algún módulo leyese os.environ en vez de config.
-    entorno["TAVILY_API_KEY"] = claves[0]
-    entorno["OPENROUTER_API_KEY"] = claves[1]
+    # (None se pasa como cadena vacía: Windows descarta las variables vacías,
+    #  y el aislamiento real lo hace el propio driver al parchear config.)
+    entorno["TAVILY_API_KEY"] = claves[0] or ""
+    entorno["OPENROUTER_API_KEY"] = claves[1] or ""
     entorno["LOG_AGENTE"] = "true" if con_log else "false"
     entorno["PYTHONUTF8"] = "1"
     entorno["PYTHONIOENCODING"] = "utf-8"

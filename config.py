@@ -43,17 +43,110 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=BASE_DIR / ".env")
 
 # ============================== CLAVES API ==================================
+# v10.4.1 — IMPORTAR config.py YA NO EXIGE CLAVES. Antes, este módulo hacía
+# SystemExit si faltaba .env: "no tengo claves" se convertía en "no puedo ni
+# arrancar", incluso para los modos que no usan ninguna (--probar-ocr,
+# --frontera, --reclasificar, --aceptar, --solicitudes, --importar-propios...),
+# y obligaba a los tests y a lanzador.py a inventarse claves falsas solo para
+# poder importar. Ahora las claves se leen igual (del .env o del entorno),
+# pero la EXIGENCIA vive en un único punto: exigir_claves(), que main.py
+# llama justo antes de empezar un flujo que de verdad las necesita. El error
+# dice QUÉ falta, para qué sirve y DÓNDE ponerlo, y salta ANTES de gastar un
+# céntimo, nunca a mitad del trabajo.
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-if not TAVILY_API_KEY or not OPENROUTER_API_KEY:
-    raise SystemExit(
-        "Faltan claves de API.\n"
-        "1) Copia .env.example a .env\n"
-        "2) Pega tus claves de Tavily y OpenRouter\n"
-        "3) Vuelve a ejecutar el script"
-    )
+# Nombre de la clave -> para qué la usa el bot (para el mensaje de error).
+CLAVES_API = {
+    "TAVILY_API_KEY": "búsquedas web (Tavily)",
+    "OPENROUTER_API_KEY": "LLM de filtrado (fase 1) y extracción (fase 2)",
+}
+
+
+class ClavesAusentes(RuntimeError):
+    """Falta una clave de API en un punto de uso (red de seguridad).
+
+    Lo normal es que el flujo muera ANTES, en el punto de validación de
+    main.py. Esto salta solo si alguien usa un cliente de API sin pasar por
+    ahí (p. ej. lanzador.py llamando a fase1/fase2 en su propio proceso).
+    """
+
+
+def claves_faltantes(nombres=None) -> list[str]:
+    """Nombres de las claves de API pedidas que faltan o están vacías.
+
+    Sin argumentos comprueba las dos. Se puede pedir solo las de un flujo
+    concreto (la fase 2 no necesita Tavily, por ejemplo)."""
+    nombres = list(nombres) if nombres else list(CLAVES_API)
+    valores = {"TAVILY_API_KEY": TAVILY_API_KEY,
+               "OPENROUTER_API_KEY": OPENROUTER_API_KEY}
+    return [n for n in nombres if not (valores.get(n) or "").strip()]
+
+
+def mensaje_claves_faltantes(nombres) -> str:
+    """Mensaje de error sin jerga: QUÉ falta, para qué y DÓNDE ponerlo."""
+    lineas = ["Faltan claves de API: " + ", ".join(nombres)]
+    for n in nombres:
+        lineas.append(f"  - {n}: {CLAVES_API.get(n, 'clave de API')}")
+    lineas += [
+        f"Dónde se ponen: en el fichero .env que está junto a config.py,",
+        f"en la carpeta del proyecto ({BASE_DIR}).",
+        "  1) Copia .env.example a .env (si no lo tienes ya)",
+        "  2) Pega ahí tus claves de Tavily y de OpenRouter",
+        "  3) Vuelve a ejecutar el mismo comando",
+    ]
+    return "\n".join(lineas)
+
+
+def validar_credenciales_api(nombres=None) -> None:
+    """ÚNICA puerta de exigencia de claves de API. Aborta con un mensaje claro
+    (qué falta, para qué sirve y dónde ponerlo) si falta alguna de las pedidas.
+
+    Se llama SOLO desde los flujos que van a gastar (main.py, en su punto de
+    validación), nunca al importar este módulo: así los modos que no usan
+    claves (--frontera, --reclasificar, --diagnostico, --probar-ocr,
+    resumen_noche.py...) funcionan sin .env. Devolver sin lanzar nada significa
+    "adelante".
+    """
+    faltan = claves_faltantes(nombres)
+    if faltan:
+        raise SystemExit(mensaje_claves_faltantes(faltan))
+
+
+class Perezoso:
+    """Envoltorio que construye el objeto real en el PRIMER uso (v10.4.1).
+
+    Sirve para los clientes de API (OpenAI/OpenRouter, Tavily): si se
+    construyen al importar el módulo, importar sin .env revienta (el SDK
+    exige una clave en el constructor). Con esto, `from utils import llm` o
+    `import scrapers.web` funcionan siempre, y el cliente se crea —y valida
+    su clave— cuando de verdad se va a usar.
+    """
+
+    def __init__(self, fabricar, etiqueta: str = "cliente"):
+        object.__setattr__(self, "_fabricar", fabricar)
+        object.__setattr__(self, "_etiqueta", etiqueta)
+        object.__setattr__(self, "_real", None)
+        object.__setattr__(self, "_lock", threading.Lock())
+
+    def _objeto(self):
+        real = object.__getattribute__(self, "_real")
+        if real is None:
+            with object.__getattribute__(self, "_lock"):
+                real = object.__getattribute__(self, "_real")
+                if real is None:
+                    real = object.__getattribute__(self, "_fabricar")()
+                    object.__setattr__(self, "_real", real)
+        return real
+
+    def __getattr__(self, nombre):
+        return getattr(self._objeto(), nombre)
+
+    def __repr__(self) -> str:
+        creado = object.__getattribute__(self, "_real") is not None
+        return (f"<{object.__getattribute__(self, '_etiqueta')} "
+                f"{'creado' if creado else 'aún sin crear (perezoso)'}>")
 
 # Modelo LLM de filtrado/agentes (barato, rápido) y de extracción (caro,
 # preciso). v10.0: ya NO hay modelo de visión — el OCR y la transcripción

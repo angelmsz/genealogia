@@ -9,8 +9,9 @@ algo se rompe".
 Qué hace este archivo:
   1. Añade la raíz del proyecto a sys.path (los tests importan config,
      utils..., agent... como módulos del proyecto).
-  2. Fija claves de API de mentira ANTES de importar config (config.py
-     hace SystemExit si faltan: correcto en producción, molesto en tests).
+  2. Deja una clave de OpenRouter de mentira (ver abajo por qué sigue haciendo
+     falta) y NADA MÁS: desde la v10.4.2 config.py no exige claves al
+     importarse, así que la de Tavily ya no se inventa.
   3. Inyecta módulos falsos de openai/tavily SOLO si no están instalados:
      la suite es de LÓGICA (identidad, dedupe, auditoría, GEDCOM...),
      nunca llama a la red. Así puede correr en cualquier máquina.
@@ -29,8 +30,21 @@ RAIZ = Path(__file__).resolve().parent.parent
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-# Claves de prueba: config.py exige que existan (SystemExit si no).
-os.environ.setdefault("TAVILY_API_KEY", "clave-de-prueba")
+# v10.4.2 (arreglo 1) — Claves de mentira: ahora solo UNA, y no por el bot.
+#
+# config.py YA NO exige claves al importarse (la exigencia vive en
+# config.validar_credenciales_api(), que solo llaman los flujos que gastan).
+# Por eso la TAVILY_API_KEY de mentira SE HA QUITADO: verificado que la suite
+# completa pasa con ella vacía. El aislamiento de los tests de subproceso lo
+# hace tests/harness_aislado.py (parchea config en memoria, BASE_DIR temporal).
+#
+# OPENROUTER_API_KEY SÍ sigue haciendo falta, y el motivo no es el bot: hay
+# tests que parchean el método sobre el objeto cliente REAL, p. ej.
+#     monkeypatch.setattr(llm_mod.llm.chat.completions, "create", _crear)
+# y el SDK de OpenAI construye ese cliente exigiendo una clave no vacía. No se
+# usa para ninguna llamada real (esos tests bloquean la red a propósito): solo
+# evita que el constructor falle. Cuando esos tests parcheen el proxy `llm` en
+# vez del cliente, esta línea se podrá borrar también.
 os.environ.setdefault("OPENROUTER_API_KEY", "clave-de-prueba")
 
 # v10.4 (P0) — los tests NUNCA escriben el registro de ejecución en el disco

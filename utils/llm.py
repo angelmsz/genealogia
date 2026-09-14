@@ -43,6 +43,7 @@ from config import (BASE_DIR, FACTOR_COSTE_ABANDONADO, MAX_TOKENS_ESTIMADO,
                     OPENROUTER_API_KEY, REASONING_ACTIVADO, TIMEOUT_LLM,
                     JSON_SCHEMA_VARIANTES,
                     SYSTEM_PROMPT_VARIANTES, DB_LOCK, MAX_REINTENTOS_LLM,
+                    ClavesAusentes, Perezoso, mensaje_claves_faltantes,
                     normalizar, precio_activo, sin_tildes,
                     extraer_json_de_respuesta)
 from utils import ui
@@ -275,11 +276,25 @@ def resumen_gasto() -> None:
 # huérfana desde el hilo abandonado (nadie la espera, nadie la cuenta y el
 # proveedor la factura). Nuestro propio bucle de chat_json ya reintenta con
 # backoff, así que el reintento del SDK solo añadía gasto invisible.
-llm = OpenAI(
-    api_key=OPENROUTER_API_KEY,
-    base_url="https://openrouter.ai/api/v1",
-    max_retries=0,
-)
+# v10.4.1 (arreglo 1): el cliente se construye en el PRIMER uso, no al
+# importar. Antes, `llm = OpenAI(api_key=OPENROUTER_API_KEY, ...)` se
+# ejecutaba al importar este módulo y el SDK revienta si la clave está
+# vacía: importar utils.llm (o cualquiera que lo importe: main, scrapers/web,
+# agent/*) exigía .env aunque el comando fuese --probar-ocr, que no usa la
+# nube para nada. El cliente es el MISMO objeto para todo el proceso y se
+# construye igual (una sola vez), solo que cuando se pide.
+def _crear_cliente_llm():
+    if not OPENROUTER_API_KEY:
+        raise ClavesAusentes(
+            mensaje_claves_faltantes(["OPENROUTER_API_KEY"]))
+    return OpenAI(
+        api_key=OPENROUTER_API_KEY,
+        base_url="https://openrouter.ai/api/v1",
+        max_retries=0,
+    )
+
+
+llm = Perezoso(_crear_cliente_llm, "cliente OpenRouter")
 
 
 # Modelos que rechazaron response_format json_schema (fallback a prompt).
@@ -517,6 +532,12 @@ def chat_json(modelo: str, system: str, user: str, temperatura: float = 0.0,
             return extraer_json_de_respuesta(contenido)
         except PresupuestoExcedido:
             raise  # parada segura: no reintentar, que el bucle guarde y pare
+        except ClavesAusentes:
+            # v10.4.1 (arreglo 1): sin clave no hay nada que reintentar. Si
+            # esto salta, alguien llegó aquí sin pasar por el punto de
+            # validación de main.py: que muera YA con el mensaje claro, en
+            # vez de reintentar 3 veces con backoff y seguir como si nada.
+            raise
         except LLMTimeoutHard as e:
             # Una sola línea: no queremos verter stacktrace por terminal.
             ui.log_warn(f"{nombre_corto} no respondió en {timeout_efectivo}s "
