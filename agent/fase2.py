@@ -95,13 +95,39 @@ def asociar_persona_ids(hallazgos: list[dict], datos_familia: dict) -> int:
 
 # ============================== EXTRACCIÓN =================================
 
-def extraer_hallazgos(fragmentos: list[dict], conn=None) -> list[dict]:
+def extraer_hallazgos(fragmentos: list[dict], conn=None,
+                      sin_cache: bool = False) -> list[dict]:
     """GLM 5.2 convierte los fragmentos brutos en hallazgos estructurados.
 
     CACHÉ por fragmento (tabla hallazgos_por_hash, clave hash+modelo):
     un fragmento ya extraído no se vuelve a pagar en ejecuciones siguientes.
     Imprescindible en el modo --ciclo, donde la fase 2 corre una vez por
     ciclo sobre un corpus que solo crece.
+
+    v10.4.2 (BUG del 13/09 — pérdida de 58 hallazgos)
+    -------------------------------------------------
+    Un lote FALLIDO dejaba ``respuesta = []`` y esa lista se guardaba en la
+    caché como si fuera un resultado: "en este fragmento no hay nada". El
+    fallo transitorio (un 400, un timeout, el modelo saturado) pasaba así a
+    ser un resultado VACÍO PERMANENTE: en la ejecución siguiente el fragmento
+    salía de la caché sin preguntar al modelo, la extracción devolvía 0
+    hallazgos y `arbol_hallazgos.json` se sobrescribía con ``[]``. Reproducido
+    en el harness aislado: lote fallido -> fila vacía en caché -> la 2ª
+    ejecución ni lo intenta.
+
+    Además, si la respuesta del lote traía hallazgos pero NINGUNO con la URL
+    de un fragmento concreto, también se cacheaba ``[]`` para ese fragmento:
+    un simple desajuste de URL (barra final, redirección) bastaba para dar
+    por vacío un fragmento que sí tenía información.
+
+    Ahora:
+      - un lote fallido NO se cachea (se reintentará; cuesta una llamada,
+        pero jamás se pierde un hallazgo);
+      - solo se cachea ``[]`` cuando el modelo respondió "nada" para el lote
+        entero; una atribución dudosa no se cachea;
+      - ``sin_cache=True`` (--sin-cache) ignora lo que ya haya en la caché
+        para volver a extraer: es la forma de recuperar una caché envenenada
+        por versiones anteriores.
 
     v4.3 — Extracción desde el TEXTO ORIGINAL: la cita se audita contra el
     texto ORIGINAL descargado (v4.2, punto 5), pero la extracción seguía
@@ -128,7 +154,7 @@ def extraer_hallazgos(fragmentos: list[dict], conn=None) -> list[dict]:
         cacheados: list[dict] = []
         pendientes: list[dict] = []
         for f in lote:
-            if conn is not None:
+            if conn is not None and not sin_cache:
                 with DB_LOCK:
                     fila = conn.execute(
                         "SELECT hallazgos FROM hallazgos_por_hash "
@@ -221,13 +247,26 @@ def extraer_hallazgos(fragmentos: list[dict], conn=None) -> list[dict]:
                         if f_origen and not h["origen"]:
                             h["origen"] = f_origen.get("origen", "")
                         hallazgos.append(h)
-            # guardar en caché
-            if conn is not None and isinstance(respuesta, list):
+            # --- guardar en caché (v10.4.2: NUNCA el resultado de un fallo) ---
+            # Tres reglas, por orden:
+            #   1. lote FALLIDO -> no se cachea nada: el fallo es transitorio
+            #      (400, timeout, modelo saturado) y cachearlo lo convertía en
+            #      "aquí no hay nada" para siempre. Este era el bug del 13/09.
+            #   2. el modelo respondió "nada" para el lote ENTERO -> se cachea
+            #      la lista vacía: es un resultado honesto.
+            #   3. el lote trajo hallazgos pero ninguno con la URL de este
+            #      fragmento -> no se puede afirmar que esté vacío: no se
+            #      cachea (se reintentará y costará una llamada, pero nunca se
+            #      da por vacío un fragmento que quizá sí tenía información).
+            if conn is not None and isinstance(respuesta, list) and not fallo_lote:
+                respuesta_vacia = not respuesta
                 for f in pendientes:
                     propios = [x for x in respuesta
                                if isinstance(x, dict)
                                and (x.get("url_fuente") or "")
                                == (f.get("url") or "")]
+                    if not propios and not respuesta_vacia:
+                        continue
                     with DB_LOCK:
                         conn.execute(
                             "INSERT OR REPLACE INTO hallazgos_por_hash "
@@ -603,11 +642,18 @@ def fase2(args, conn=None) -> None:
                   f"recibido id estable (P0001...): los homónimos ya no se "
                   f"fusionan")
 
+    # v10.4.2: --sin-cache también manda en la caché de EXTRACCIÓN. Es la vía
+    # para volver a preguntar al modelo por fragmentos que una versión
+    # anterior cacheó como vacíos por un fallo transitorio.
+    sin_cache = bool(getattr(args, "sin_cache", False))
     hallazgos: list[dict] = []
     if relevantes:
         try:
             ui.cabecera("1/6 Extrayendo hallazgos estructurados")
-            hallazgos = extraer_hallazgos(relevantes, conn)
+            if sin_cache:
+                ui.log_warn("caché de hallazgos DESACTIVADA (--sin-cache): se "
+                            "vuelve a extraer todo el corpus (tiene coste)")
+            hallazgos = extraer_hallazgos(relevantes, conn, sin_cache=sin_cache)
             ui.log_ok(f"{len(hallazgos)} hallazgos extraídos")
 
             # v4.2 (punto 6): asocia cada hallazgo a su ficha por ID

@@ -621,7 +621,9 @@ def main() -> None:
                         help='nombres a investigar, separados por comas; '
                              'p. ej. "Isidro Merillas Panero,Obdulia Pelaz Merino"')
     parser.add_argument("--sin-cache", action="store_true",
-                        help="repetir búsquedas aunque estén en la caché")
+                        help="repetir búsquedas aunque estén en la caché "
+                             "(en la fase 2: vuelve a extraer los hallazgos "
+                             "de todos los fragmentos, aunque estén cacheados)")
     parser.add_argument("--diagnostico", action="store_true",
                         help="prueba rápida previa: claves, BD, familia, "
                              "modelos, filtro de dominios y fechas GEDCOM")
