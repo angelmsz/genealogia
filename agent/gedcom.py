@@ -32,6 +32,7 @@ from config import (BASE_DIR, DIR_DOCUMENTOS_PROPIOS, FAMILIA_JSON_PATH,
                     MODELO_FASE1, MODELO_FASE2, PRECIO_MILLON_TOKENS,
                     PRECIO_POR_DEFECTO, _limpiar_claves,
                     _consulta_conector_hecha, _marcar_conector,
+                    escribir_con_backup,
                     normalizar, sha256_corto, sin_tildes, variantes_compuesto)
 from scrapers.archivos import (ParesNoDisponible,
                                 buscar_localidades_ensenada,
@@ -497,11 +498,16 @@ def exportar_gedcom(familia_path: str = FAMILIA_JSON_PATH,
     lineas += ["0 @SUB1@ SUBM",
                "1 NAME Investigador del árbol familiar",
                "0 TRLR"]
-    with open(BASE_DIR / salida, "w", encoding="utf-8") as f:
-        f.write("\n".join(lineas) + "\n")
+    # v10.4.2 — red de seguridad: el GEDCOM anterior queda como .bak antes de
+    # sobrescribirlo (el árbol es el resultado final de la noche: si algo sale
+    # mal, la versión de ayer sigue estando).
+    respaldo = escribir_con_backup(BASE_DIR / salida,
+                                   "\n".join(lineas) + "\n")
     extra = " (migradas con ids estables)" if nuevos_ids else ""
     ui.log_tree(f"GEDCOM escrito en {salida} ({len(claves)} personas, "
                 f"{len(familias)} familias){extra}")
+    if respaldo:
+        ui.log(f"copia de seguridad del anterior: {Path(respaldo).name}")
 
 
 # ============================== SOLICITUDES ===============================

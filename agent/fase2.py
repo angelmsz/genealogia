@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from pathlib import Path
 
 from config import (BASE_DIR, DB_LOCK, FAMILIA_JSON_PATH, HALLAZGOS_JSON,
                     INTENTOS_FASE2, JSON_SCHEMA_AUDITORIA,
@@ -39,6 +40,7 @@ from config import (BASE_DIR, DB_LOCK, FAMILIA_JSON_PATH, HALLAZGOS_JSON,
                     SYSTEM_PROMPT_FUSION, SYSTEM_PROMPT_HALLAZGOS,
                     TIMEOUT_LLM_FASE2,
                     _limpiar_claves, envolver_fuente,
+                    escribir_con_backup, tenia_contenido,
                     normalizar, sha256_corto, sin_tildes, trocear)
 from agent.evidencia import (NIVEL_CANDIDATO_FUERTE, NIVEL_COINCIDENCIA_DEBIL,
                              NIVEL_CONFIRMADO, clasificar_hallazgos,
@@ -52,6 +54,38 @@ from utils.personas import anio_persona, asignar_ids, emparejar_persona
 # detalles internos de esta fase).
 LOTE_AUDITORIA = 8
 MAX_CHARS_AUDITORIA = 8_000
+
+
+def _guardar_json(ruta, datos, etiqueta: str) -> bool:
+    """Guarda `datos` (JSON) en `ruta` sin poder perder lo que había.
+
+    v10.4.2 — dos redes de seguridad, aprendidas del incidente del 13/09:
+      1. la versión anterior queda como `ruta.bak` (antes no había copia
+         ninguna y los 58 hallazgos de una noche se perdieron);
+      2. si `datos` viene VACÍO (0 hallazgos, árbol sin personas...) y el
+         fichero que hay SÍ tiene contenido, NO se sobrescribe: se avisa y se
+         conserva lo anterior. Un fichero desactualizado se arregla repitiendo
+         la fase 2; un fichero borrado, no.
+
+    Devuelve True si escribió.
+    """
+    if not tenia_contenido(datos):
+        try:
+            anterior = json.loads(ruta.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            anterior = None
+        if tenia_contenido(anterior):
+            ui.log_warn(
+                f"PROTECCIÓN: NO se sobrescribe {etiqueta} con un resultado "
+                f"vacío (0 elementos) porque el fichero que hay SÍ tiene "
+                f"contenido. Se conserva el anterior; si de verdad quieres "
+                f"vaciar el fichero, hazlo a mano.")
+            return False
+    respaldo = escribir_con_backup(
+        ruta, json.dumps(datos, ensure_ascii=False, indent=2))
+    if respaldo:
+        ui.log(f"copia de seguridad del anterior: {Path(respaldo).name}")
+    return True
 MIN_ANIOS_ENTRE_GENERACIONES = 13
 MAX_ANIOS_MADRE_HIJO = 55
 
@@ -693,10 +727,12 @@ def fase2(args, conn=None) -> None:
             ui.log_ok(f"citas verificadas: {verif}/{len(hallazgos)}; el resto "
                       f"queda como SIN_VERIFICAR")
 
-            # Guardado intermedio: los hallazgos auditados valen por sí solos
-            with open(BASE_DIR / HALLAZGOS_JSON, "w", encoding="utf-8") as f:
-                json.dump(hallazgos, f, ensure_ascii=False, indent=2)
-            ui.log_doc(f"hallazgos auditados -> {HALLAZGOS_JSON}")
+            # Guardado intermedio: los hallazgos auditados valen por sí solos.
+            # v10.4.2 — con red de seguridad: .bak del anterior y nunca
+            # sobrescribir con vacío (ver _guardar_json).
+            if _guardar_json(BASE_DIR / HALLAZGOS_JSON, hallazgos,
+                             HALLAZGOS_JSON):
+                ui.log_doc(f"hallazgos auditados -> {HALLAZGOS_JSON}")
 
             ui.cabecera("5/6 Consolidando con la memoria familiar")
             # v10.2 (bug crítico del log): si el LLM está inaccesible
@@ -763,16 +799,19 @@ def fase2(args, conn=None) -> None:
                           f"la familia -> candidatos nuevos (pistas "
                           f"colaterales: se investigan, NUNCA son prueba)")
             _aplicar_evidencia_al_arbol(consolidado, hallazgos)
-            with open(BASE_DIR / REFINADO_JSON, "w", encoding="utf-8") as f:
-                json.dump(consolidado, f, ensure_ascii=False, indent=2)
-            ui.log_doc(f"Árbol refinado -> {REFINADO_JSON}")
+            # v10.4.2 — con red de seguridad (.bak del anterior + protección
+            # ante un resultado vacío): ver _guardar_json.
+            if _guardar_json(BASE_DIR / REFINADO_JSON, consolidado,
+                             REFINADO_JSON):
+                ui.log_doc(f"Árbol refinado -> {REFINADO_JSON}")
         except PresupuestoExcedido as e:
             ui.log_error(f"PARADA SEGURA por presupuesto en fase 2: {e}")
             if hallazgos:
-                with open(BASE_DIR / HALLAZGOS_JSON, "w", encoding="utf-8") as f:
-                    json.dump(hallazgos, f, ensure_ascii=False, indent=2)
-                ui.log_doc(f"Hallazgos parciales guardados en {HALLAZGOS_JSON}. "
-                           f"Reanuda subiendo --presupuesto-max.")
+                if _guardar_json(BASE_DIR / HALLAZGOS_JSON, hallazgos,
+                                 HALLAZGOS_JSON):
+                    ui.log_doc(f"Hallazgos parciales guardados en "
+                               f"{HALLAZGOS_JSON}. Reanuda subiendo "
+                               f"--presupuesto-max.")
     else:
         ui.log_warn(f"No hay fragmentos relevantes; la consolidación y el "
                     f"GEDCOM se generan solo con la memoria familiar.")

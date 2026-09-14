@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sqlite3
 import threading
 import unicodedata
@@ -347,6 +348,43 @@ CANDIDATOS_ENSENADA = "candidatos_ensenada.json"
 DIR_DOCUMENTOS_PROPIOS = "documentos_propios"
 SALIDA_SOLICITUDES = "solicitudes.json"
 SALIDA_SOLICITUDES_MD = "solicitudes.md"
+
+
+# =============== v10.4.2 — GUARDADO SEGURO DE LOS FICHEROS DE ESTADO =======
+# El 13/09 una ejecución de fase 2 escribió ``[]`` encima de
+# arbol_hallazgos.json y los 58 hallazgos de la noche se perdieron: no existía
+# ninguna copia dentro del proyecto. Estas dos funciones son la red de
+# seguridad que faltaba, y las usan los tres ficheros de estado irremplazables
+# (arbol_hallazgos.json, arbol_refinado.json y arbol.ged).
+
+def escribir_con_backup(ruta, contenido: str) -> str | None:
+    """Escribe `contenido` en `ruta`, dejando la versión anterior en `.bak`.
+
+    Devuelve la ruta del backup, o None si no había nada que respaldar.
+    """
+    ruta = Path(ruta)
+    respaldo: str | None = None
+    if ruta.exists():
+        destino = ruta.with_suffix(ruta.suffix + ".bak")
+        try:
+            shutil.copy2(ruta, destino)
+            respaldo = str(destino)
+        except OSError:
+            respaldo = None
+    ruta.write_text(contenido, encoding="utf-8")
+    return respaldo
+
+
+def tenia_contenido(datos) -> bool:
+    """True si `datos` trae algo (lista/dict con elementos, o un valor no nulo).
+
+    Sirve para la regla "un resultado VACÍO no pisa un fichero con contenido":
+    perder 58 hallazgos por una extracción que devolvió 0 es peor que no
+    actualizar el fichero.
+    """
+    if isinstance(datos, (list, dict, tuple, set)):
+        return len(datos) > 0
+    return datos is not None
 # v10.4 (P3) — registro append-only de búsquedas INFRUCTUOSAS (evidencia
 # negativa). El informe de metodología profesional lo pide expresamente:
 # "los genealogistas documentan cada paso… registran búsquedas infructuosas".
