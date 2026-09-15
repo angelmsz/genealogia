@@ -100,6 +100,36 @@ def test_guardar_json_vacio_sobre_fichero_vacio_si_escribe(tmp_path):
     assert fase2._guardar_json(ruta, [], HALLAZGOS) is True
 
 
+def test_r02_la_guarda_bloquea_el_vacio_y_es_posterior_al_incidente(tmp_path,
+                                                                   capsys):
+    """R-02 (revisión externa): verificación de la guarda y por qué el incidente
+    pasó "a pesar" de ella.
+
+    1) La guarda SÍ bloquea escribir ``[]`` encima de un fichero con contenido
+       (el fichero se queda como estaba).
+    2) El accidente del 13/09 no ocurrió "a pesar" de la guarda: la guarda NO
+       EXISTÍA. El 13/09 la escritura era un ``open(ruta, "w")`` directo.
+       Queda documentado en el propio docstring de _guardar_json y fijado aquí:
+       (a) no queda ninguna escritura directa de estado, y
+       (b) la documentación cuenta la cronología.
+    """
+    ruta = tmp_path / HALLAZGOS
+    ruta.write_text(json.dumps([{"persona": f"P{i}"} for i in range(58)]),
+                    encoding="utf-8")
+
+    assert fase2._guardar_json(ruta, [], HALLAZGOS) is False
+    capsys.readouterr()
+    assert len(json.loads(ruta.read_text(encoding="utf-8"))) == 58
+
+    # (a) Ninguna escritura directa de los ficheros de estado.
+    fuente = Path(fase2.__file__).read_text(encoding="utf-8")
+    assert 'open(BASE_DIR / HALLAZGOS_JSON, "w"' not in fuente
+    assert 'open(BASE_DIR / REFINADO_JSON, "w"' not in fuente
+    # (b) La cronología queda escrita donde se lee el código.
+    doc = fase2._guardar_json.__doc__ or ""
+    assert "13/09" in doc and "NO EXISTÍA" in doc
+
+
 # ============ EL INCIDENTE, DE PUNTA A PUNTA: fase 2 no borra nada =========
 
 def _entorno_fase2(tmp_path, monkeypatch, n_hallazgos=58):

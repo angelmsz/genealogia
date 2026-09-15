@@ -60,7 +60,7 @@ MAX_CHARS_AUDITORIA = 8_000
 def _guardar_json(ruta, datos, etiqueta: str) -> bool:
     """Guarda `datos` (JSON) en `ruta` sin poder perder lo que había.
 
-    v10.4.2 — dos redes de seguridad, aprendidas del incidente del 13/09:
+    v10.4.2 — dos redes de seguridad:
       1. la versión anterior queda como `ruta.bak` (antes no había copia
          ninguna y los 58 hallazgos de una noche se perdieron);
       2. si `datos` viene VACÍO (0 hallazgos, árbol sin personas...) y el
@@ -69,6 +69,22 @@ def _guardar_json(ruta, datos, etiqueta: str) -> bool:
          la fase 2; un fichero borrado, no.
 
     Devuelve True si escribió.
+
+    R-02 (revisión externa) — ¿bloquea escribir ``[]``? SÍ, siempre que el
+    fichero que hay tenga contenido; si no había fichero (o estaba vacío), se
+    escribe ``[]`` sin drama, porque no se pierde nada. Verificado en
+    tests/test_proteccion_estado_v105.py.
+
+    ¿Y por qué el accidente del 13/09 pasó "a pesar" de esta guarda? Porque la
+    guarda NO EXISTÍA entonces: el 13/09 a las 23:55 la fase 2 escribía con un
+    ``open(ruta, "w")`` directo y un resultado vacío pisaba el anterior. Esta
+    función se escribió DESPUÉS, como reacción al incidente (commit del 15/09
+    00:57), y desde entonces es la ÚNICA vía de escritura de
+    arbol_hallazgos.json y arbol_refinado.json (hay un test que comprueba que
+    no queda ningún ``open(..., "w")`` directo sobre esos ficheros). O sea: la
+    guarda no falló, llegó tarde. Lo que falló antes fue otra cosa: la caché de
+    extracción guardaba los lotes fallidos como "vacío" (arreglado en el
+    BLOQUE 0) y la escritura no tenía red.
     """
     if not tenia_contenido(datos):
         try:
