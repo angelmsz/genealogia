@@ -375,6 +375,21 @@ def escribir_con_backup(ruta, contenido: str) -> str | None:
     return respaldo
 
 
+def copiar_con_backup(ruta) -> str | None:
+    """Copia `ruta` tal cual (bytes) a `ruta.bak`. Devuelve el backup o None.
+
+    Para ficheros que no se pueden reescribir como texto (la base de datos
+    SQLite: cache_agente.db). Igual que escribir_con_backup, deja rastro
+    ANTES de que algo los modifique.
+    """
+    ruta = Path(ruta)
+    if not ruta.exists():
+        return None
+    destino = ruta.with_suffix(ruta.suffix + ".bak")
+    shutil.copy2(ruta, destino)
+    return str(destino)
+
+
 def tenia_contenido(datos) -> bool:
     """True si `datos` trae algo (lista/dict con elementos, o un valor no nulo).
 

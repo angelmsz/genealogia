@@ -43,7 +43,8 @@ import argparse
 import json
 from datetime import datetime
 
-from config import (BASE_DIR, ESTADO_PATH, FAMILIA_JSON_PATH, HASHES_CORPUS,
+from config import (BASE_DIR, DB_PATH, ESTADO_PATH, FAMILIA_JSON_PATH,
+                    HASHES_CORPUS,
                     HALLAZGOS_JSON, INFORME_FASE1, INTENTOS_FASE2,
                     LOTE_HALLAZGOS, MARGEN_PRECIO_SEGURIDAD, MAX_STEPS,
                     MODELO_FASE1,
@@ -51,7 +52,7 @@ from config import (BASE_DIR, ESTADO_PATH, FAMILIA_JSON_PATH, HASHES_CORPUS,
                     OCR_MAX_PAGINAS_LOCAL, PRECIO_TIMEOUT_S, REFINADO_JSON,
                     SALIDA_JSON,
                     TIMEOUT_LLM, TIMEOUT_LLM_FASE2, VERSION,
-                    _limpiar_claves, fijar_precios_vivos,
+                    _limpiar_claves, copiar_con_backup, fijar_precios_vivos,
                     limpiar_precios_vivos,
                     normalizar, precio_activo, sha256_corto,
                     validar_credenciales_api, get_db)
@@ -624,6 +625,67 @@ def _claves_necesarias(fase: str, ciclo: int = 0) -> list[str]:
     return claves
 
 
+# ======== v10.4.2 — MANTENIMIENTO: LIMPIAR LA CACHÉ DE HALLAZGOS ==========
+
+def _confirmar(pregunta: str, defecto: bool = False) -> bool:
+    """Confirmación por teclado; Enter (o entrada cerrada) = `defecto`.
+
+    Se usa en los comandos de mantenimiento que tocan datos del usuario. Por
+    defecto `defecto=False`: sin una 's' explícita, no se borra nada.
+    """
+    try:
+        respuesta = input(pregunta).strip().lower()
+    except EOFError:
+        return defecto
+    if not respuesta:
+        return defecto
+    return respuesta in ("s", "si", "sí", "y", "yes")
+
+
+def limpiar_cache_hallazgos_comando() -> int:
+    """--limpiar-cache-hallazgos: borra las filas inútiles del caché de
+    extracción (0 tokens, 0 red).
+
+    POR QUÉ EXISTE: la versión anterior de la fase 2 guardaba ``[]`` en
+    hallazgos_por_hash cuando un lote FALLABA, y esos fragmentos ya no se volvían
+    a extraer nunca (es lo que produjo la fase 2 que devolvía 0 hallazgos y
+    escribía [] el 13/09). Este comando borra SOLO esas filas: las que tienen
+    hallazgos se quedan intactas. Antes de tocar nada enseña cuántas son, pide
+    confirmación (Enter = n) y deja copia de la base de datos en
+    cache_agente.db.bak.
+    """
+    from agent.fase2 import filas_cache_vacias, limpiar_cache_hallazgos
+    conn = get_db()
+    try:
+        conn.commit()          # sin transacción abierta al copiar el fichero
+        inutiles = filas_cache_vacias(conn)
+        total = conn.execute("SELECT COUNT(*) FROM hallazgos_por_hash"
+                             ).fetchone()[0]
+        ui.separador("Mantenimiento: caché de extracción de hallazgos")
+        ui.log(f"{DB_PATH}: {total} filas · {len(inutiles)} sin hallazgos "
+               f"(vacías o ilegibles)")
+        if not inutiles:
+            ui.log_ok("No hay nada que limpiar: todas las filas aportan "
+                      "hallazgos.")
+            return 0
+        ui.log_warn(f"Esas {len(inutiles)} filas harán que la próxima fase 2 "
+                    f"vuelva a extraer sus fragmentos, y eso SÍ cuesta dinero "
+                    f"(es justo lo que se quiere: volver a preguntar al modelo "
+                    f"en vez de dar el fragmento por vacío).")
+        if not _confirmar(f"¿Borrar las {len(inutiles)} filas inútiles de "
+                          f"{total}? (s/n, Enter = n): "):
+            ui.log("Cancelado: no se ha borrado nada.")
+            return 0
+        if copiar_con_backup(BASE_DIR / DB_PATH):
+            ui.log(f"copia de seguridad del anterior: {DB_PATH}.bak")
+        borradas = limpiar_cache_hallazgos(conn)
+        ui.log_ok(f"{borradas} filas inútiles borradas. La próxima fase 2 "
+                  f"volverá a extraer esos fragmentos.")
+        return 0
+    finally:
+        conn.close()
+
+
 # ============================== MAIN =======================================
 
 def main() -> None:
@@ -674,6 +736,13 @@ def main() -> None:
                              "determinista de evidencia: OFFLINE (0 tokens, "
                              "0 llamadas de red), con backup .bak del "
                              "anterior")
+    parser.add_argument("--limpiar-cache-hallazgos", action="store_true",
+                        dest="limpiar_cache_hallazgos",
+                        help="MANTENIMIENTO: borra de la caché de extracción "
+                             "las filas que no aportan hallazgos (vacías o "
+                             "ilegibles) para que la fase 2 vuelva a "
+                             "extraerlas. Pide confirmación (Enter = n) y deja "
+                             "copia previa cache_agente.db.bak. No gasta nada")
     parser.add_argument("--aceptar", action="store_true",
                         help="COMMIT: fusiona en familia_conocida.json solo lo "
                              "verificado del último arbol_refinado.json "
@@ -757,6 +826,11 @@ def main() -> None:
         # los JSON ya guardados; ni un token, ni una llamada de red.
         totales = reclasificar_comando()
         raise SystemExit(0 if totales is not None else 1)
+
+    if args.limpiar_cache_hallazgos:
+        # v10.4.2: mantenimiento offline de la caché de extracción. Como los
+        # demás modos que no gastan, sale ANTES de la validación de claves.
+        raise SystemExit(limpiar_cache_hallazgos_comando())
 
     if args.solicitudes:
         generar_solicitudes()

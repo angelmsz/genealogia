@@ -81,7 +81,8 @@ def test_la_puerta_de_claves_se_llama_solo_en_flujos_que_gastan():
     primera = src.index("validar_credenciales_api(")
     for modo_gratis in ("if args.diagnostico:", "if args.probar_conectores:",
                         "if args.frontera:", "if args.reclasificar:",
-                        "if args.solicitudes:", "if args.probar_ocr:"):
+                        "if args.solicitudes:", "if args.probar_ocr:",
+                        "if args.limpiar_cache_hallazgos:"):
         assert src.index(modo_gratis) < primera, modo_gratis
     # Y antes de la consulta de precios (que cuesta una llamada de red).
     assert primera < src.index("_fijar_precios_del_dia()")

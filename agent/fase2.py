@@ -312,6 +312,50 @@ def extraer_hallazgos(fragmentos: list[dict], conn=None,
     return hallazgos
 
 
+# ============ v10.4.2 — MANTENIMIENTO DE LA CACHÉ DE EXTRACCIÓN =============
+
+def _fila_sin_hallazgos(texto: str | None) -> bool:
+    """True si el contenido guardado en una fila de la caché no aporta nada.
+
+    Cuenta como inútil la lista vacía (``[]``) y todo lo que no sea una lista
+    con elementos (JSON ilegible, ``null``...). Ojo: NO se puede distinguir una
+    lista vacía "honesta" (el modelo dijo que en ese fragmento no hay nada) de
+    una que escribió la versión anterior al fallar un lote. Ante la duda, la
+    fila se considera inútil: volver a preguntar al modelo cuesta dinero, dar
+    por vacío un fragmento que no lo está cuesta un hallazgo perdido.
+    """
+    try:
+        datos = json.loads(texto if texto else "[]")
+    except (json.JSONDecodeError, TypeError):
+        return True
+    return not (isinstance(datos, list) and datos)
+
+
+def filas_cache_vacias(conn) -> list[str]:
+    """Hashes de las filas de hallazgos_por_hash que no aportan hallazgos."""
+    filas = conn.execute("SELECT hash, hallazgos FROM hallazgos_por_hash"
+                         ).fetchall()
+    return [hash_ for hash_, texto in filas if _fila_sin_hallazgos(texto)]
+
+
+def limpiar_cache_hallazgos(conn) -> int:
+    """Borra las filas inútiles de la caché de extracción. Devuelve cuántas.
+
+    Es la vía para desenvenenar una caché que la versión anterior llenó de
+    vacíos: hasta que no se borran, esos fragmentos no se vuelven a extraer
+    NUNCA (la fase 2 los da por hechos). Se borra SOLO lo que no aporta nada:
+    los fragmentos con hallazgos se quedan intactos.
+    """
+    hashes = filas_cache_vacias(conn)
+    if not hashes:
+        return 0
+    with DB_LOCK:
+        conn.executemany("DELETE FROM hallazgos_por_hash WHERE hash=?",
+                         [(h,) for h in hashes])
+        conn.commit()
+    return len(hashes)
+
+
 # ============================== CONSOLIDACIÓN ==============================
 
 def consolidar(datos_familia: dict, hallazgos: list[dict]) -> dict:
