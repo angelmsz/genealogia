@@ -47,8 +47,26 @@ def quitar_flags_antiguos(argv: list[str]) -> tuple[list[str], list[str]]:
     return utiles, ignorados
 
 
+def _preparar_salida() -> None:
+    """UTF-8 tolerante en la salida de ESTE fichero.
+
+    FALLO 3 del sobremesa: el aviso de aquí lleva tildes ("se retiró") y en
+    Windows la salida por defecto es cp1252, así que al ir por tubería (un
+    test, un script, la salida redirigida a un fichero) se emitían bytes que no
+    son UTF-8: quien leía esperando UTF-8 se encontraba un error o un texto
+    roto. Mismo criterio que `menu_principal.py` (que ya lo hacía) y que
+    `lanzador.ps1` (que fuerza UTF-8 en la consola).
+    """
+    for flujo in (sys.stdout, sys.stderr):
+        try:
+            flujo.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
     """Avisa del cambio y ejecuta el menú nuevo con los mismos argumentos."""
+    _preparar_salida()
     argumentos = list(sys.argv[1:] if argv is None else argv)
     if not MENU.is_file():
         print(f"[x] No encuentro {MENU.name} junto a este script ({BASE_DIR}).")

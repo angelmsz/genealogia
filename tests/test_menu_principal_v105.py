@@ -749,12 +749,21 @@ def test_mostrar_argv_entrecomilla_solo_si_hay_espacios():
 
 def test_smoke_arranca_y_sale_con_cero():
     """Proceso real: --sin-pausa --sin-log con stdin '0' -> código 0, sin
-    traceback y con la VERSION del proyecto en la cabecera."""
+    traceback y con la VERSION del proyecto en la cabecera.
+
+    FALLO 3 del sobremesa (misma familia): el hijo va con
+    PYTHONIOENCODING=utf-8 y aquí se lee con errors="replace", para que una
+    consola cp1252 no deje la salida inservible.
+    """
+    entorno = dict(os.environ)
+    entorno["PYTHONIOENCODING"] = "utf-8"
+    entorno["PYTHONUTF8"] = "1"
     resultado = subprocess.run(
         [sys.executable, "menu_principal.py", "--sin-pausa", "--sin-log"],
         input="0\n", cwd=RAIZ, capture_output=True, text=True,
-        encoding="utf-8", timeout=120)
+        encoding="utf-8", errors="replace", timeout=120, env=entorno)
     assert resultado.returncode == 0, resultado.stderr[-800:]
+    assert "\ufffd" not in resultado.stdout
     assert "MENÚ DE TAREAS" in resultado.stdout
     assert "VERSION: 10.4" in resultado.stdout
     assert "Elige una opción" in resultado.stdout
