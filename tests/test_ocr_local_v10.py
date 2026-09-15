@@ -208,6 +208,36 @@ def test_h_gitignore_presente():
         assert entrada in contenido, f".gitignore sin {entrada}"
 
 
+def test_env_example_versionado_y_sin_claves():
+    """FALLO 4 del sobremesa: `.env.example` es la plantilla para quien clona el
+    proyecto y tiene que estar EN EL REPOSITORIO (en el sobremesa faltaba, y el
+    test g) se ponía rojo leyéndolo), pero SIN ninguna clave real dentro.
+
+    Se comprueban las dos cosas: que el fichero esté y que git NO lo ignore (si
+    lo ignorara, no llegaría en un `git clone`/`git pull` y volveríamos al fallo).
+    """
+    ruta = RAIZ / ".env.example"
+    assert ruta.is_file(), "falta .env.example en el repositorio"
+
+    secretos = ("TAVILY_API_KEY", "OPENROUTER_API_KEY", "FAMILYSEARCH_USER",
+                "FAMILYSEARCH_PASS", "FAMILYSEARCH_COOKIE")
+    for linea in ruta.read_text(encoding="utf-8").splitlines():
+        limpia = linea.strip()
+        for nombre in secretos:
+            if limpia.startswith(f"{nombre}="):
+                valor = limpia.split("=", 1)[1].strip()
+                assert valor == "", f"{nombre} trae un valor en la plantilla"
+
+    import shutil
+    import subprocess
+    git = shutil.which("git")
+    if git:   # si no hay git en la máquina, esta comprobación no aplica
+        r = subprocess.run([git, "check-ignore", str(ruta)], cwd=RAIZ,
+                           capture_output=True, text=True)
+        assert r.returncode != 0, (
+            f".gitignore está ignorando .env.example ({r.stdout.strip()})")
+
+
 def test_extra_manuscrito_con_ocr_clasico_no_se_intenta(monkeypatch):
     """(extra, spec TAREA 1 'manuscritos: olmOCR-2 local o fallo
     explícito'): manuscrito con OCR_BACKEND=rapidocr -> fallo explícito

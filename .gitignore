@@ -7,6 +7,11 @@
 # --- Secretos (NUNCA al repo) ---
 .env
 .env.*
+# EXCEPCIÓN (FALLO 4 del sobremesa): la PLANTILLA sí va al repositorio. Es lo
+# primero que necesita quien clona el proyecto (.env.example -> .env) y su
+# ausencia dejaba sin sentido a un test de la suite. No lleva claves: solo los
+# nombres de las variables y valores por defecto.
+!.env.example
 *.pem
 *.key
 
