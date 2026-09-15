@@ -84,9 +84,9 @@ def _lanzar_hilos(funcion, nombres) -> list[threading.Thread]:
         h.join(timeout=15)
     assert not any(h.is_alive() for h in hilos), "un hilo se quedó colgado"
     # Igual que hace el bot al terminar una consulta: los hilos ya murieron, así
-    # que se cierran sus sesiones (si no, este módulo iría dejando sesiones
-    # registradas de hilos muertos y los tests se estorbarían entre ellos).
-    config.cerrar_sesiones_hijas()
+    # que se cierran SUS sesiones. Se pasan los idents EXPLÍCITOS (R-01): nada de
+    # «cierra todas las de los demás», que abortaría hilos que sigan trabajando.
+    config.cerrar_sesiones_de(h.ident for h in hilos)
     return hilos
 
 
@@ -236,6 +236,97 @@ def test_las_sesiones_de_los_hilos_se_cierran_al_apagar_el_pool(
     assert set(cerradas) == de_hilos, "quedó alguna sesión de hilo sin cerrar"
     assert set(cerradas) == {id(s) for s in creadas}
     assert config.sesiones_abiertas() == antes
+
+
+def test_no_cierra_las_sesiones_de_hilos_que_siguen_trabajando(
+        http_falso, monkeypatch):
+    """R-01: un hilo que sigue trabajando NO pierde su sesión porque otro bloque
+    esté cerrando las suyas.
+
+    Antes, `sesiones_hilo_limpias()` cerraba "todas las sesiones que no sean la
+    del hilo actual": si en ese momento otro hilo estaba trabajando (el pool de
+    descargas de fase 1 convive con los hilos daemon del timeout duro del LLM y
+    con cualquier herramienta futura), le abortaba las peticiones.
+    """
+    class _Espia(requests.Session):
+        cerrada = False
+
+        def close(self):
+            self.cerrada = True
+            return super().close()
+
+    monkeypatch.setattr(config, "_nueva_sesion", lambda: _Espia())
+
+    listo = threading.Event()
+    terminar = threading.Event()
+    visto: dict = {}
+
+    def _fondo():
+        config.SESSION.get(URL)              # crea SU sesión
+        visto["sesion"] = config.sesion()
+        listo.set()
+        terminar.wait(timeout=10)            # sigue trabajando mientras el otro cierra
+        try:
+            config.SESSION.get(URL)          # y sigue funcionando después
+            visto["sigue_ok"] = True
+        except Exception as e:               # noqa: BLE001 (es la prueba)
+            visto["error"] = f"{type(e).__name__}: {e}"
+
+    fondo = threading.Thread(target=_fondo, name="fondo")
+    fondo.start()
+    assert listo.wait(timeout=10), "el hilo de fondo no arrancó"
+
+    # Otro bloque, como el pool de descargas de fase 1: abre y cierra las suyas.
+    def _trabajo(_):
+        config.SESSION.get(URL)
+
+    with config.sesiones_hilo_limpias(), ThreadPoolExecutor(max_workers=2) as ex:
+        list(ex.map(_trabajo, range(2)))
+
+    assert visto["sesion"].cerrada is False, \
+        "le cerraron la sesión a un hilo que seguía trabajando"
+    terminar.set()
+    fondo.join(timeout=10)
+    assert visto.get("sigue_ok") is True, visto.get("error")
+    config.cerrar_sesiones_de({fondo.ident})
+
+
+def test_cerrar_sesiones_de_solo_cierra_las_indicadas(http_falso, monkeypatch):
+    """R-01: el cierre es EXPLÍCITO: solo las sesiones de los hilos que se
+    indican, ni una más."""
+    sesiones: dict = {}
+
+    class _Espia(requests.Session):
+        cerrada = False
+
+        def __init__(self):
+            super().__init__()
+            self.hilo = threading.current_thread().name
+
+        def close(self):
+            self.cerrada = True
+            return super().close()
+
+    monkeypatch.setattr(config, "_nueva_sesion", lambda: _Espia())
+
+    def _trabajo(nombre):
+        config.SESSION.get(URL)
+        sesiones[nombre] = config.sesion()
+
+    hilos = [threading.Thread(target=_trabajo, args=(n,), name=n)
+             for n in ("a", "b")]
+    for h in hilos:
+        h.start()
+    for h in hilos:
+        h.join(timeout=10)
+    ident_a = next(h.ident for h in hilos if h.name == "a")
+
+    cerradas = config.cerrar_sesiones_de([ident_a])
+
+    assert cerradas == 1
+    assert sesiones["a"].cerrada is True
+    assert sesiones["b"].cerrada is False, "cerró una sesión que no le tocaba"
+    config.cerrar_sesiones_de(h.ident for h in hilos)
 
 
 def test_fase1_cierra_las_sesiones_del_pool():

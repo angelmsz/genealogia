@@ -987,25 +987,42 @@ def cerrar_sesion_del_hilo() -> bool:
     return True
 
 
-def cerrar_sesiones_hijas() -> int:
-    """Cierra las sesiones de OTROS hilos y devuelve cuántas cerró.
+def hilos_con_sesion() -> set[int]:
+    """Idents de los hilos que tienen una sesión registrada AHORA MISMO.
 
-    Se llama cuando esos hilos YA han terminado (p. ej. al apagar el
-    ThreadPoolExecutor de fase 1): nadie las va a usar y sus conexiones
-    quedarían abiertas (fuga de sockets) hasta que acabara el proceso.
+    Sirve para acotar un cierre: se toma la foto antes y después de un bloque y
+    solo se cierran las sesiones de los hilos que aparecieron dentro.
+    """
+    with _SESIONES_LOCK:
+        return set(_SESIONES)
+
+
+def cerrar_sesiones_de(hilos) -> int:
+    """Cierra las sesiones de los hilos indicados (por `threading.get_ident()`).
+
+    Devuelve cuántas cerró. El hilo actual se ignora (no puede cerrarse la
+    sesión que está usando).
+
+    Es DELIBERADAMENTE explícito: solo se cierra lo que quien llama SABE que ha
+    terminado. Un «cierra todas las de los demás» aborta las peticiones de
+    cualquier hilo que siga trabajando: en este proceso conviven el pool de
+    descargas de fase 1, los hilos daemon del timeout duro del LLM y los hilos
+    que abra cualquier herramienta futura.
     """
     actual = threading.get_ident()
-    with _SESIONES_LOCK:
-        ajenas = [(ident, s) for ident, s in _SESIONES.items()
-                  if ident != actual]
-        for ident, _ in ajenas:
-            _SESIONES.pop(ident, None)
-    for _, s in ajenas:
+    a_cerrar = {int(h) for h in hilos} - {actual}
+    cerradas = 0
+    for ident in a_cerrar:
+        with _SESIONES_LOCK:
+            sesion_ajena = _SESIONES.pop(ident, None)
+        if sesion_ajena is None:
+            continue
         try:
-            s.close()
+            sesion_ajena.close()
         except Exception:
             pass
-    return len(ajenas)
+        cerradas += 1
+    return cerradas
 
 
 def sesiones_abiertas() -> int:
@@ -1016,16 +1033,22 @@ def sesiones_abiertas() -> int:
 
 @contextlib.contextmanager
 def sesiones_hilo_limpias():
-    """Cierra las sesiones de los hilos hijos al salir del bloque (sin fugas).
+    """Cierra, al salir, las sesiones creadas DENTRO del bloque (sin fugas).
 
     Uso:  ``with sesiones_hilo_limpias(), ThreadPoolExecutor(...) as ex:``
     El orden de la línea importa: así el executor se apaga (join de todos sus
     hilos) ANTES de que se cierren las sesiones de esos hilos.
+
+    v10.4.2 (R-01) — Solo toca las sesiones de hilos que se registraron durante
+    el bloque (los del pool que se acaba de apagar). Las que ya existían antes
+    —hilos que pueden seguir trabajando— NO se tocan: antes esto llamaba a un
+    cierre "de todos los demás" y eso abortaba peticiones ajenas.
     """
+    antes = hilos_con_sesion()
     try:
         yield
     finally:
-        cerrar_sesiones_hijas()
+        cerrar_sesiones_de(hilos_con_sesion() - antes)
 
 
 class _SesionHilo:
