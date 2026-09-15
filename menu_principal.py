@@ -25,6 +25,15 @@ CÓMO FUNCIONA (y por qué así)
     salida no reviente en consolas cp1252 al ir por tubería. Esto ESQUIVA ese
     problema en el menú; no lo arregla (sigue abierto para ejecuciones
     directas), y aquí queda dicho para no vender humo.
+  - v10.4.2 — cubre también la parte del menú antiguo (lanzador.py) que de
+    verdad se usaba: --ciclo N (autopiloto), --fase 1 sola, --personas "A,B",
+    --max-steps y --presupuesto-max libres, y el --test-llm del diagnóstico.
+    Los comandos avanzados que NO están en el menú (opción 15) se imprimen en
+    una chuleta, para copiar y pegar, sin ejecutar nada.
+  - v10.4.2 — al terminar una acción que escribe estado, el menú dice QUÉ
+    ficheros ha generado o actualizado (tamaño + recuento cuando se puede
+    contar): antes había que abrir el explorador para saber si la noche había
+    dejado algo nuevo.
 
 LO QUE NO HACE (a propósito)
   - No toca lanzador.py (el menú antiguo, en proceso) ni la lógica del bot.
@@ -43,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -57,6 +67,45 @@ LOGS_DIR = BASE_DIR / "logs"
 RETENCION_LOGS = 30          # logs/menu_*.log que se conservan
 TAIL_ULTIMO_LOG = 60         # líneas que se muestran de un log
 PRESUPUESTO_DEFECTO = "0.5"
+# Ficheros de salida del bot que se vigilan para poder decir, al terminar cada
+# acción, QUÉ ha generado o actualizado (mtime + tamaño + recuento si se puede).
+FICHEROS_VIGILADOS = (
+    "corpus_bruto.json",            # fase 1
+    "informe_fase1.json",           # fase 1
+    "arbol_hallazgos.json",         # fase 2
+    "arbol_refinado.json",          # fase 2
+    "arbol.ged",                    # fase 2
+    "estado_investigacion.json",    # frontera / commit
+    "informe_progreso.md",          # frontera / commit
+    "familia_conocida.json",        # --aceptar
+    "registro_confirmaciones.jsonl",  # --aceptar
+)
+# Orden en que se pintan las opciones (0 = salir, fuera de la lista).
+ORDEN_OPCIONES = ("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
+                  "12", "13", "14", "15")
+# Comandos avanzados que se quedan FUERA del menú a propósito: la opción 15 solo
+# los enseña (con su aviso de si gastan o no) para no tener que recordarlos.
+CHULETA_AVANZADOS = (
+    ("--solicitudes",
+     "genera las solicitudes de partidas (solicitudes.json + .md): para pedir "
+     "por escrito lo que no está online. No gasta nada."),
+    ("--importar-propios",
+     "transcribe las fotos de documentos_propios/ con el OCR 100% LOCAL y las "
+     "añade al corpus. No gasta nada."),
+    ("--reclasificar",
+     "vuelve a clasificar el árbol ya guardado con el clasificador "
+     "determinista de evidencia. No gasta ni un token."),
+    ("--ensenada",
+     "busca los municipios del árbol en el Catastro de Ensenada (1752) y "
+     "escribe candidatos_ensenada.json. Gasta algo de LLM."),
+    ("--probar-conectores",
+     "comprueba en vivo SIGA (Álava), ADDO (Palencia) y PARES. No gasta "
+     "tokens, pero usa la red."),
+    ("--fase 2 --sin-cache",
+     "repite la extracción de hallazgos aunque esté en caché: es la forma de "
+     "recuperar fragmentos que una versión anterior guardó como vacíos. "
+     "GASTA (vuelve a extraer todo el corpus)."),
+)
 CANDIDATOS_INTERPRETE = (
     Path(".venv") / "Scripts" / "python.exe",   # Windows
     Path(".venv") / "bin" / "python",           # Linux/macOS
@@ -102,6 +151,16 @@ OPCIONES: dict[str, tuple[str, str]] = {
            "pip install fonttools (no está en requirements.txt)"),
     "11": ("ver último log",
            "rabo del log más reciente de logs/"),
+    "12": ("--ciclo N (autopiloto)",
+           "N ciclos completos: fase 1 -> fase 2 -> commit -> frontera "
+           "(GASTA dinero)"),
+    "13": ("--fase 1 (solo búsqueda)",
+           "corpus nuevo desde la web con Tavily + LLM (GASTA dinero)"),
+    "14": ('--personas "A,B"',
+           "investiga SOLO a esas personas (fase 1 + fase 2; GASTA dinero)"),
+    "15": ("chuleta de comandos avanzados",
+           "los comandos que NO están en el menú, para copiar y pegar "
+           "(no ejecuta nada)"),
     "0": ("Salir", ""),
 }
 
@@ -296,6 +355,66 @@ def _pausar() -> None:
         pass
 
 
+def _pedir_presupuesto() -> float | None:
+    """Presupuesto en dólares del usuario, o None si lo escrito no vale.
+
+    Enter = PRESUPUESTO_DEFECTO; se admite la coma decimal (1,5). Devuelve None
+    (opción cancelada) ante texto no numérico, cero o negativo: el menú NUNCA
+    adivina cuánto puedes gastar. Lo usan todas las opciones que gastan, para
+    que la pregunta y las reglas sean las mismas en todas.
+    """
+    crudo = _preguntar(f"  ¿Presupuesto máximo en $? "
+                       f"[{PRESUPUESTO_DEFECTO}]:", PRESUPUESTO_DEFECTO)
+    try:
+        valor = float(crudo.replace(",", "."))
+    except ValueError:
+        print(f"  [!] '{crudo}' no es un número válido: opción CANCELADA.")
+        return None
+    if valor <= 0:
+        print("  [!] El presupuesto debe ser mayor que 0: opción CANCELADA.")
+        return None
+    return valor
+
+
+def _preguntar_max_steps() -> int | None:
+    """--max-steps opcional. Devuelve el número, o None para no añadir el flag.
+
+    Enter (vacío) = no añadir nada y dejar el valor del bot. Un valor que no sea
+    un entero positivo no se adivina: se cancela la opción (MenuCancelado).
+    """
+    crudo = _preguntar("  ¿Consultas máx. por objetivo? (Enter = el del bot):",
+                       "")
+    if not crudo:
+        return None
+    try:
+        valor = int(crudo)
+    except ValueError:
+        raise MenuCancelado(f"'{crudo}' no es un número entero")
+    if valor <= 0:
+        raise MenuCancelado("--max-steps debe ser mayor que 0")
+    return valor
+
+
+def _pedir_nombres() -> str:
+    """Nombres para --personas (separados por comas). "" si no escriben nada."""
+    crudo = _preguntar('  Nombres a investigar, separados por comas '
+                       '(ej. "Isidro Merillas Panero,Obdulia Pelaz Merino"):',
+                       "")
+    return ",".join(p.strip() for p in crudo.split(",") if p.strip())
+
+
+def _pedir_ciclos() -> int:
+    """Número de ciclos del autopiloto (Enter = 1). Si no vale, cancela."""
+    crudo = _preguntar("  ¿Cuántos ciclos completos? [1]:", "1")
+    try:
+        valor = int(crudo)
+    except ValueError:
+        raise MenuCancelado(f"'{crudo}' no es un número entero")
+    if valor <= 0:
+        raise MenuCancelado("el número de ciclos debe ser mayor que 0")
+    return valor
+
+
 # ============================== EJECUCIÓN ==================================
 
 def capturar(argv: list[str], timeout: int = 60) -> tuple[int, str]:
@@ -351,6 +470,117 @@ def _correr(argv: list[str], *, opcion: str, descripcion: str,
     finally:
         reg.cerrar(codigo, time.monotonic() - inicio)
     return codigo
+
+
+def _contar_salida(ruta: Path) -> tuple[int | None, str]:
+    """Recuento de lo contable de un fichero de salida (o (None, "")).
+
+    Sirve para decir "arbol_hallazgos.json: 58 hallazgos (+6)" en vez de solo
+    "ha cambiado": lo que se quiere saber al terminar una acción es CUÁNTO ha
+    crecido el trabajo, no el tamaño en bytes.
+    """
+    try:
+        if ruta.suffix == ".jsonl":
+            with ruta.open(encoding="utf-8", errors="replace") as f:
+                return sum(1 for linea in f if linea.strip()), "líneas"
+        if ruta.suffix == ".json":
+            datos = json.loads(ruta.read_text(encoding="utf-8"))
+            if isinstance(datos, list):
+                return len(datos), "elementos"
+            if isinstance(datos, dict):
+                for clave, etiqueta in (("personas", "personas"),
+                                        ("frontera", "entradas de frontera"),
+                                        ("hallazgos", "hallazgos"),
+                                        ("objetivos", "objetivos")):
+                    if isinstance(datos.get(clave), list):
+                        return len(datos[clave]), etiqueta
+                return len(datos), "claves"
+    except (OSError, ValueError, TypeError):
+        pass
+    return None, ""
+
+
+def instantanea_salidas(base: Path | None = None) -> dict:
+    """Foto de los ficheros de salida (mtime, tamaño y recuento)."""
+    base = base if base is not None else BASE_DIR
+    foto: dict = {}
+    for nombre in FICHEROS_VIGILADOS:
+        ruta = base / nombre
+        try:
+            datos = ruta.stat()
+        except OSError:
+            continue
+        cantidad, etiqueta = _contar_salida(ruta)
+        foto[nombre] = (datos.st_mtime, datos.st_size, cantidad, etiqueta)
+    return foto
+
+
+def resumen_generados(antes: dict, base: Path | None = None) -> list[str]:
+    """Qué ficheros de salida han cambiado desde `antes`, con su recuento.
+
+    Devuelve las líneas ya formateadas (vacío si no cambió nada). Se compara
+    mtime Y tamaño: en un sistema de ficheros con marcas de 1 segundo, dos
+    escrituras dentro del mismo segundo se distinguen por el tamaño.
+    """
+    lineas: list[str] = []
+    for nombre, (mtime, tamano, cantidad, etiqueta) in \
+            instantanea_salidas(base).items():
+        previo = antes.get(nombre)
+        if previo is None:
+            detalle = f"{cantidad} {etiqueta}" if cantidad is not None else \
+                f"{tamano} bytes"
+            lineas.append(f"   + {nombre}: CREADO ({detalle})")
+            continue
+        if (mtime, tamano) == (previo[0], previo[1]):
+            continue
+        texto = f"   ~ {nombre}: {tamano} bytes"
+        if cantidad is not None:
+            texto += f", {cantidad} {etiqueta}"
+            if previo[2] is not None:
+                delta = cantidad - previo[2]
+                texto += f" ({delta:+d})"
+        lineas.append(texto)
+    return lineas
+
+
+def _ejecutar_con_resumen(argv: list[str], *, opcion: str, descripcion: str,
+                          sin_log: bool = False) -> int:
+    """Lanza el comando y, al terminar, dice QUÉ ha generado o actualizado.
+
+    Es lo que el menú antiguo (lanzador.py) hacía tras cada acción y que se
+    perdió al pasar a subprocesos: saber si la noche ha dejado algo nuevo en el
+    disco sin abrir el explorador de ficheros.
+    """
+    antes = instantanea_salidas()
+    codigo = _correr(argv, opcion=opcion, descripcion=descripcion,
+                     sin_log=sin_log)
+    lineas = resumen_generados(antes)
+    if lineas:
+        print("\n  Esta acción ha generado o actualizado:")
+        for linea in lineas:
+            print(linea)
+    else:
+        print("\n  (esta acción no ha cambiado ningún fichero de salida)")
+    return codigo
+
+
+def _lanzar_gastando(argv: list[str], *, opcion: str, descripcion: str,
+                     sin_log: bool = False, aviso: str = "") -> int:
+    """Enseña el comando, pide CONFIRMACIÓN explícita (Enter = n) y lo lanza.
+
+    La usan todas las opciones que gastan dinero, para que el texto y las
+    reglas sean idénticos en todas: un comando, un aviso y una confirmación.
+    Devuelve 0 si se cancela (no se ha gastado nada).
+    """
+    print(f"\n  Comando exacto: {mostrar_argv(argv)}")
+    if aviso:
+        print(f"  {aviso}")
+    if not _confirmar("  Esto puede gastar dinero en OpenRouter. "
+                      "¿Continuar? (s/n, Enter = n):"):
+        print("  Cancelado: no se ha gastado nada.")
+        return 0
+    return _ejecutar_con_resumen(argv, opcion=opcion, descripcion=descripcion,
+                                 sin_log=sin_log)
 
 
 class RegistroMenu:
@@ -455,35 +685,123 @@ def accion_pytest(interprete: str, sin_log: bool = False) -> int:
 
 
 def accion_diagnostico(interprete: str, sin_log: bool = False) -> int:
-    """Opción 3: --diagnostico (0 tokens)."""
-    return _correr([interprete, "main.py", "--diagnostico"], opcion="3",
-                   descripcion="main.py --diagnostico", sin_log=sin_log)
+    """Opción 3: --diagnostico (0 tokens), con --test-llm opcional.
+
+    --test-llm hace un ping REAL a cada modelo: confirma que la clave y el
+    modelo funcionan, y cuesta unos pocos tokens. Por eso es una subpregunta
+    con Enter = no.
+    """
+    argv = [interprete, "main.py", "--diagnostico"]
+    if _confirmar("  ¿Hacer además el ping REAL a los modelos (--test-llm)? "
+                  "Consume unos pocos tokens (s/n, Enter = n):"):
+        argv.append("--test-llm")
+    descripcion = "main.py --diagnostico" + (
+        " --test-llm" if "--test-llm" in argv else "")
+    print(f"\n  Comando exacto: {mostrar_argv(argv)}")
+    return _correr(argv, opcion="3", descripcion=descripcion, sin_log=sin_log)
 
 
 def accion_fase2(interprete: str, sin_log: bool = False) -> int:
-    """Opción 4: fase 2 con presupuesto. Gasta dinero: confirmación EXPLÍCITA
-    (Enter cancela) y presupuesto inválido = cancelar, no adivinar."""
-    crudo = _preguntar(f"  ¿Presupuesto máximo en $? "
-                       f"[{PRESUPUESTO_DEFECTO}]:", PRESUPUESTO_DEFECTO)
-    try:
-        valor = float(crudo.replace(",", "."))
-    except ValueError:
-        print(f"  [!] '{crudo}' no es un número válido: opción CANCELADA.")
-        return 0
-    if valor <= 0:
-        print(f"  [!] El presupuesto debe ser mayor que 0: opción CANCELADA.")
+    """Opción 4: fase 2 con presupuesto libre y --max-steps opcional.
+
+    Gasta dinero: presupuesto obligatorio y confirmación EXPLÍCITA (Enter
+    cancela). Un presupuesto inválido cancela la opción; el menú nunca adivina
+    cuánto puedes gastar.
+    """
+    valor = _pedir_presupuesto()
+    if valor is None:
         return 0
     argv = [interprete, "main.py", "--fase", "2",
             "--presupuesto-max", f"{valor:g}"]
-    print(f"\n  Comando exacto: {mostrar_argv(argv)}")
-    print("  (el tope lo aplica el bot: al alcanzarlo guarda el progreso y para)")
-    if not _confirmar("  Esto puede gastar dinero en OpenRouter. "
-                      "¿Continuar? (s/n, Enter = n):"):
-        print("  Cancelado: no se ha gastado nada.")
+    pasos = _preguntar_max_steps()
+    if pasos is not None:
+        argv += ["--max-steps", str(pasos)]
+    return _lanzar_gastando(
+        argv, opcion="4",
+        descripcion=f"fase 2 (presupuesto ${valor:g})", sin_log=sin_log,
+        aviso="(el tope lo aplica el bot: al alcanzarlo guarda el progreso y "
+              "para)")
+
+
+def accion_ciclo(interprete: str, sin_log: bool = False) -> int:
+    """Opción 12: autopiloto de N ciclos (fase 1 -> fase 2 -> commit -> frontera).
+
+    Es la opción que más gasta (N ciclos completos): presupuesto obligatorio y
+    confirmación explícita con Enter = n.
+    """
+    ciclos = _pedir_ciclos()
+    valor = _pedir_presupuesto()
+    if valor is None:
         return 0
-    return _correr(argv, opcion="4",
-                   descripcion=f"fase 2 con --presupuesto-max {valor:g}",
-                   sin_log=sin_log)
+    argv = [interprete, "main.py", "--ciclo", str(ciclos),
+            "--presupuesto-max", f"{valor:g}"]
+    return _lanzar_gastando(
+        argv, opcion="12",
+        descripcion=f"autopiloto {ciclos} ciclos (${valor:g})",
+        sin_log=sin_log,
+        aviso="(el autopiloto repite fase 1 + fase 2 + frontera en cada ciclo "
+              "hasta agotar el presupuesto o los ciclos)")
+
+
+def accion_fase1(interprete: str, sin_log: bool = False) -> int:
+    """Opción 13: solo fase 1 (búsqueda), con presupuesto y confirmación.
+
+    Gasta: cada consulta es una búsqueda de Tavily y el filtro de páginas usa
+    el LLM. Con el corpus ya lleno no suele hacer falta.
+    """
+    valor = _pedir_presupuesto()
+    if valor is None:
+        return 0
+    argv = [interprete, "main.py", "--fase", "1",
+            "--presupuesto-max", f"{valor:g}"]
+    pasos = _preguntar_max_steps()
+    if pasos is not None:
+        argv += ["--max-steps", str(pasos)]
+    return _lanzar_gastando(
+        argv, opcion="13", descripcion=f"fase 1 (presupuesto ${valor:g})",
+        sin_log=sin_log)
+
+
+def accion_personas(interprete: str, sin_log: bool = False) -> int:
+    """Opción 14: investigar SOLO a las personas que se escriban (--personas).
+
+    Filtra la frontera a esos nombres y ejecuta fase 1 + fase 2. Gasta, así que
+    pide presupuesto y confirmación como las demás.
+    """
+    nombres = _pedir_nombres()
+    if not nombres:
+        print("  [!] Sin nombres no hay nada que filtrar: opción CANCELADA.")
+        return 0
+    valor = _pedir_presupuesto()
+    if valor is None:
+        return 0
+    argv = [interprete, "main.py", "--personas", nombres,
+            "--presupuesto-max", f"{valor:g}"]
+    pasos = _preguntar_max_steps()
+    if pasos is not None:
+        argv += ["--max-steps", str(pasos)]
+    return _lanzar_gastando(
+        argv, opcion="14",
+        descripcion=f"investigación filtrada: {nombres[:60]}", sin_log=sin_log)
+
+
+def accion_chuleta(interprete: str, sin_log: bool = False) -> int:
+    """Opción 15: imprime la chuleta de los comandos avanzados.
+
+    NO ejecuta nada: los comandos que no están en el menú (--solicitudes,
+    --importar-propios, --reclasificar, --ensenada, --probar-conectores) se
+    copian y pegan desde aquí. Así el menú no crece con opciones de uso
+    esporádico, pero tampoco se olvidan.
+    """
+    print("\n  Comandos avanzados (se ejecutan a mano; el menú solo los "
+          "enseña):")
+    print(f"  intérprete: {interprete}\n")
+    for comando, descripcion in CHULETA_AVANZADOS:
+        print(f"   {interprete} main.py {comando}")
+        print(f"       {descripcion}")
+    print(f"\n   {interprete} main.py --help      (todas las opciones)")
+    print("   (nada de esto se ha ejecutado: esto es solo una chuleta)")
+    return 0
 
 
 def accion_aceptar(interprete: str, sin_log: bool = False) -> int:
@@ -495,14 +813,18 @@ def accion_aceptar(interprete: str, sin_log: bool = False) -> int:
                       "¿Continuar? (s/n, Enter = n):"):
         print("  Cancelado: el árbol no se ha tocado.")
         return 0
-    return _correr(argv, opcion="5", descripcion="main.py --aceptar",
-                   sin_log=sin_log)
+    return _ejecutar_con_resumen(argv, opcion="5",
+                                 descripcion="main.py --aceptar",
+                                 sin_log=sin_log)
 
 
 def accion_frontera(interprete: str, sin_log: bool = False) -> int:
-    """Opción 6: --frontera (no gasta)."""
-    return _correr([interprete, "main.py", "--frontera"], opcion="6",
-                   descripcion="main.py --frontera", sin_log=sin_log)
+    """Opción 6: --frontera (no gasta). Reescribe el estado y el informe de
+    progreso, así que también dice qué ha cambiado."""
+    return _ejecutar_con_resumen([interprete, "main.py", "--frontera"],
+                                 opcion="6",
+                                 descripcion="main.py --frontera",
+                                 sin_log=sin_log)
 
 
 def accion_resumen(interprete: str, sin_log: bool = False) -> int:
@@ -627,7 +949,8 @@ ACCIONES = {
     "1": accion_git_pull, "2": accion_pytest, "3": accion_diagnostico,
     "4": accion_fase2, "5": accion_aceptar, "6": accion_frontera,
     "7": accion_resumen, "8": accion_probar_ocr, "9": accion_dependencias,
-    "10": accion_fonttools, "11": accion_ultimo_log,
+    "10": accion_fonttools, "11": accion_ultimo_log, "12": accion_ciclo,
+    "13": accion_fase1, "14": accion_personas, "15": accion_chuleta,
 }
 
 
@@ -637,7 +960,7 @@ def _pintar_menu(version: str, interprete: str) -> None:
     print("=" * 62)
     print(f" AGENTE GENEALÓGICO — MENÚ DE TAREAS   (VERSION: {version})")
     print("=" * 62)
-    for numero in ("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"):
+    for numero in ORDEN_OPCIONES:
         etiqueta, descripcion = OPCIONES[numero]
         print(f" {numero:>2}. {etiqueta}")
         print(f"     {descripcion}")
@@ -651,7 +974,8 @@ def _pintar_menu(version: str, interprete: str) -> None:
 def _despachar(eleccion: str, interprete: str, sin_log: bool) -> None:
     accion = ACCIONES.get(eleccion)
     if accion is None:
-        print(f"  [!] Opción '{eleccion}' no reconocida (0-11).")
+        ultima = ORDEN_OPCIONES[-1]
+        print(f"  [!] Opción '{eleccion}' no reconocida (0-{ultima}).")
         return
     try:
         accion(interprete, sin_log=sin_log)

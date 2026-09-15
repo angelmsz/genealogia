@@ -22,6 +22,7 @@ Todo sin red, sin git real, sin pip real y sin LLM: los ejecutores
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -89,7 +90,12 @@ def py() -> str:
 # ============================== 1. COMANDOS ================================
 
 def test_comandos_simples_son_exactos(monkeypatch, py):
-    """Opciones 2, 3, 6 y 7: el argv es exactamente el documentado."""
+    """Opciones 2, 3, 6 y 7: el argv es exactamente el documentado.
+
+    La opción 3 pregunta si además se hace el ping real (--test-llm): aquí se
+    responde Enter (= no), así que el comando es el de siempre.
+    """
+    _respuestas(monkeypatch, [""])                 # Enter: sin --test-llm
     rec = Grabador()
     monkeypatch.setattr(menu, "_correr", rec)
 
@@ -113,7 +119,8 @@ def test_guardia_contra_deriva_de_flags():
     flags_main = set(re.findall(r'add_argument\(\s*"(--[a-z0-9\-]+)"', texto))
     flags_menu = {"--fase", "--presupuesto-max", "--aceptar", "--frontera",
                   "--diagnostico", "--probar-ocr", "--manuscrito",
-                  "--sin-cache"}
+                  "--sin-cache", "--max-steps", "--test-llm", "--ciclo",
+                  "--personas"}
     assert flags_menu <= flags_main, (
         f"flags del menú que ya no existen en main.py: {flags_menu - flags_main}")
     assert (RAIZ / "resumen_noche.py").is_file()
@@ -171,7 +178,7 @@ def test_git_pull_si_status_falla_no_hace_pull(monkeypatch):
 # ============================== 3. FASE 2 ==================================
 
 def test_fase2_confirmacion_denegada_no_lanza_subproceso(monkeypatch, py):
-    _respuestas(monkeypatch, ["", "n"])            # Enter presupuesto + 'n'
+    _respuestas(monkeypatch, ["", "", "n"])        # $ + max-steps + 'n'
     rec = Grabador()
     monkeypatch.setattr(menu, "_correr", rec)
 
@@ -199,8 +206,9 @@ def test_fase2_presupuesto_cero_cancela(monkeypatch, py):
 
 def test_fase2_presupuesto_valido_lanza_comando_exacto(monkeypatch, py,
                                                        capsys):
-    """Enter = 0.5 y confirmación 's' -> comando exacto."""
-    prompts = _respuestas(monkeypatch, ["", "s"])
+    """Enter = 0.5, Enter = sin --max-steps y confirmación 's' -> comando
+    exacto."""
+    prompts = _respuestas(monkeypatch, ["", "", "s"])
     rec = Grabador()
     monkeypatch.setattr(menu, "_correr", rec)
 
@@ -215,7 +223,7 @@ def test_fase2_presupuesto_valido_lanza_comando_exacto(monkeypatch, py,
 
 
 def test_fase2_presupuesto_personalizado(monkeypatch, py):
-    _respuestas(monkeypatch, ["1,25", "s"])
+    _respuestas(monkeypatch, ["1,25", "", "s"])
     rec = Grabador()
     monkeypatch.setattr(menu, "_correr", rec)
 
@@ -223,6 +231,30 @@ def test_fase2_presupuesto_personalizado(monkeypatch, py):
 
     assert rec.ultimo == [py, "main.py", "--fase", "2",
                           "--presupuesto-max", "1.25"]     # coma decimal ok
+
+
+def test_fase2_max_steps_opcional(monkeypatch, py):
+    """--max-steps solo se añade si se escribe un número; Enter = no añadirlo."""
+    _respuestas(monkeypatch, ["", "25", "s"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+
+    menu.accion_fase2(py)
+
+    assert rec.ultimo == [py, "main.py", "--fase", "2",
+                          "--presupuesto-max", "0.5",
+                          "--max-steps", "25"]
+
+
+def test_fase2_max_steps_invalido_cancela(monkeypatch, py, capsys):
+    _respuestas(monkeypatch, ["", "muchas", "s"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+
+    with pytest.raises(menu.MenuCancelado):
+        menu.accion_fase2(py)
+
+    assert rec.llamadas == []
 
 
 # ============================== 4. --ACEPTAR ===============================
@@ -545,15 +577,139 @@ def test_opcion_desconocida_no_revienta(monkeypatch, capsys):
     assert "no reconocida" in capsys.readouterr().out
 
 
-def test_menu_muestra_las_doce_opciones(capsys, py):
+def test_menu_muestra_todas_las_opciones(capsys, py):
     menu._pintar_menu("10.4.1", py)
     salida = capsys.readouterr().out
     assert "VERSION: 10.4.1" in salida
-    for numero in ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
-                   "11"):
+    for numero in menu.ORDEN_OPCIONES + ("0",):
         etiqueta = menu.OPCIONES[numero][0]
         assert etiqueta in salida
     assert "\x1b[" not in salida            # texto plano: sin códigos ANSI
+
+
+# ============ 12-15: lo que solo hacía el lanzador (v10.4.2) ===============
+
+def test_diagnostico_pide_el_ping_real(monkeypatch, py):
+    """--test-llm es una subpregunta: con 's' se añade, con Enter no."""
+    _respuestas(monkeypatch, ["s"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+    menu.accion_diagnostico(py)
+    assert rec.ultimo == [py, "main.py", "--diagnostico", "--test-llm"]
+
+
+def test_ciclo_pide_ciclos_presupuesto_y_confirma(monkeypatch, py):
+    prompts = _respuestas(monkeypatch, ["2", "1,5", "s"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+
+    menu.accion_ciclo(py)
+
+    assert rec.ultimo == [py, "main.py", "--ciclo", "2",
+                          "--presupuesto-max", "1.5"]
+    assert any("ciclos" in p for p in prompts)
+    assert any("gastar dinero" in p for p in prompts)
+
+
+def test_ciclo_enter_en_la_confirmacion_no_lanza_nada(monkeypatch, py):
+    _respuestas(monkeypatch, ["1", "", ""])       # Enter también en el $
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+
+    assert menu.accion_ciclo(py) == 0
+    assert rec.llamadas == []
+
+
+def test_ciclo_numero_invalido_cancela(monkeypatch, py):
+    _respuestas(monkeypatch, ["muchos"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+
+    with pytest.raises(menu.MenuCancelado):
+        menu.accion_ciclo(py)
+    assert rec.llamadas == []
+
+
+def test_fase1_construye_su_comando(monkeypatch, py):
+    _respuestas(monkeypatch, ["0.25", "", "s"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+
+    menu.accion_fase1(py)
+
+    assert rec.ultimo == [py, "main.py", "--fase", "1",
+                          "--presupuesto-max", "0.25"]
+
+
+def test_personas_sin_nombres_cancela(monkeypatch, py, capsys):
+    _respuestas(monkeypatch, [""])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+
+    assert menu.accion_personas(py) == 0
+    assert rec.llamadas == []
+    assert "CANCELADA" in capsys.readouterr().out
+
+
+def test_personas_van_como_un_solo_argumento(monkeypatch, py):
+    """Los nombres con espacios NO parten el comando: van en un argv."""
+    _respuestas(monkeypatch,
+                ["Isidro Merillas Panero, Obdulia Pelaz Merino", "", "", "s"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+
+    menu.accion_personas(py)
+
+    assert rec.ultimo == [py, "main.py", "--personas",
+                          "Isidro Merillas Panero,Obdulia Pelaz Merino",
+                          "--presupuesto-max", "0.5"]
+
+
+def test_chuleta_enseña_los_comandos_avanzados_y_no_ejecuta_nada(monkeypatch,
+                                                                py, capsys):
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+
+    assert menu.accion_chuleta(py) == 0
+
+    assert rec.llamadas == []                     # NADA se ejecuta
+    salida = capsys.readouterr().out
+    for comando in ("--solicitudes", "--importar-propios", "--reclasificar",
+                    "--ensenada", "--probar-conectores"):
+        assert comando in salida
+    assert "solo una chuleta" in salida
+
+
+def test_ejecutar_con_resumen_dice_que_ha_cambiado(monkeypatch, tmp_path,
+                                                   capsys):
+    """Al terminar una acción se dice QUÉ ficheros han cambiado y cuánto."""
+    monkeypatch.setattr(menu, "BASE_DIR", tmp_path)
+    (tmp_path / "arbol_hallazgos.json").write_text("[]", encoding="utf-8")
+
+    def _correr_falso(argv, *, opcion="", descripcion="", sin_log=False):
+        (tmp_path / "arbol_hallazgos.json").write_text(
+            json.dumps([{"persona": "P"}] * 3), encoding="utf-8")
+        (tmp_path / "arbol.ged").write_text("0 HEAD\n0 TRLR\n",
+                                            encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(menu, "_correr", _correr_falso)
+
+    codigo = menu._ejecutar_con_resumen([py, "main.py", "--fase", "2"],
+                                        opcion="4", descripcion="prueba")
+
+    salida = capsys.readouterr().out
+    assert codigo == 0
+    assert "arbol_hallazgos.json" in salida
+    assert "3 elementos" in salida and "(+3)" in salida
+    assert "CREADO" in salida and "arbol.ged" in salida
+
+
+def test_resumen_generados_sin_cambios_no_dice_nada(monkeypatch, tmp_path):
+    monkeypatch.setattr(menu, "BASE_DIR", tmp_path)
+    (tmp_path / "corpus_bruto.json").write_text("[]", encoding="utf-8")
+    antes = menu.instantanea_salidas()
+    assert menu.resumen_generados(antes) == []
 
 
 def test_mostrar_argv_entrecomilla_solo_si_hay_espacios():
