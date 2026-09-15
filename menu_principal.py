@@ -551,15 +551,25 @@ def resumen_generados(antes: dict, base: Path | None = None) -> list[str]:
 
 def _ejecutar_con_resumen(argv: list[str], *, opcion: str, descripcion: str,
                           sin_log: bool = False) -> int:
-    """Lanza el comando y, al terminar, dice QUÉ ha generado o actualizado.
+    """Lanza el comando y, si TERMINA BIEN, dice QUÉ ha generado o actualizado.
 
-    Es lo que hacía el menú antiguo ya retirado tras cada acción, y que se
-    había perdido al pasar a subprocesos: saber si la noche ha dejado algo nuevo
-    en el disco sin abrir el explorador de ficheros.
+    Es lo que hacía el menú antiguo tras cada acción, y que se había perdido al
+    pasar a subprocesos: saber si la acción ha dejado algo nuevo en el disco sin
+    abrir el explorador de ficheros.
+
+    R-08 (revisión externa): el resumen se enseña SOLO si el subproceso sale con
+    código 0. Con un fallo, lo que haya en disco puede ser un resultado a medias
+    (media fase 2, un árbol sin consolidar), y listarlo como "esto se ha
+    generado" daba a entender que la acción había ido bien.
     """
     antes = instantanea_salidas()
     codigo = _correr(argv, opcion=opcion, descripcion=descripcion,
                      sin_log=sin_log)
+    if codigo != 0:
+        print(f"\n  (el comando terminó con código {codigo}: NO te digo qué "
+              f"ficheros han cambiado, porque un resultado a medias no es un "
+              f"resultado. Revisa la salida de arriba.)")
+        return codigo
     lineas = resumen_generados(antes)
     if lineas:
         print("\n  Esta acción ha generado o actualizado:")

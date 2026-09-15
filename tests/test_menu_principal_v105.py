@@ -712,6 +712,28 @@ def test_resumen_generados_sin_cambios_no_dice_nada(monkeypatch, tmp_path):
     assert menu.resumen_generados(antes) == []
 
 
+def test_r08_no_informa_de_ficheros_si_el_comando_falla(monkeypatch, tmp_path,
+                                                       capsys):
+    """R-08: con código de salida distinto de 0 no se lista lo generado (un
+    resultado a medias no es un resultado), y se dice con qué código falló."""
+    monkeypatch.setattr(menu, "BASE_DIR", tmp_path)
+
+    def _correr_falso(argv, *, opcion="", descripcion="", sin_log=False):
+        (tmp_path / "arbol_hallazgos.json").write_text("[]", encoding="utf-8")
+        return 3
+
+    monkeypatch.setattr(menu, "_correr", _correr_falso)
+
+    codigo = menu._ejecutar_con_resumen([py, "main.py", "--fase", "2"],
+                                        opcion="4", descripcion="prueba")
+
+    salida = capsys.readouterr().out
+    assert codigo == 3
+    assert "código 3" in salida
+    assert "arbol_hallazgos.json" not in salida
+    assert "Esta acción ha generado" not in salida
+
+
 def test_mostrar_argv_entrecomilla_solo_si_hay_espacios():
     assert menu.mostrar_argv(["py", "main.py", "--frontera"]) == \
         "py main.py --frontera"
