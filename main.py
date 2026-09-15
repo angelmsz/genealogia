@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-main.py — Punto de entrada del agente de investigación genealógica v10.2
+main.py — Punto de entrada del agente de investigación genealógica
 (modo AVANZADO: para el uso diario, ejecuta menu_principal.py —o Menu.bat en
-Windows—, que ofrece un menú de tareas sin escribir comandos).
+Windows—, que ofrece un menú de tareas sin escribir comandos). La versión vive
+en config.VERSION y se imprime en la cabecera del log de cada ejecución.
 
 Estructura del proyecto (FASE 3 del refactor):
 
@@ -461,7 +462,8 @@ def _probar_ocr(ruta: str, manuscrito: bool, sin_cache: bool) -> int:
     url_fuente = (f"https://pares.cultura.gob.es/{ruta_pdf.name}"
                   if manuscrito else f"file://localhost/{ruta_pdf.name}")
 
-    ui.separador("v10.1 — Prueba de la cascada OCR (100% local, sin agente)")
+    ui.separador(f"v{VERSION} — Prueba de la cascada OCR (100% local, "
+                 f"sin agente)")
     print(f"  PDF          : {ruta_pdf}")
     print(f"  Tamaño       : {len(pdf_bytes):,} bytes "
           f"(hash caché: {web._hash_pdf(pdf_bytes)[:16]})")
@@ -690,7 +692,8 @@ def limpiar_cache_hallazgos_comando() -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Agente de investigación genealógica v9.0 (modular, con "
+        description=f"Agente de investigación genealógica v{VERSION} "
+                    "(modular, con "
                     "timeout duro radical, verificación de citas contra el "
                     "texto ORIGINAL, ids estables de persona, backups con "
                     "fecha, freno real del autopiloto, conectores con fallo "
@@ -891,7 +894,7 @@ def main() -> None:
     # --aceptar...). Ahora se exigen SOLO las de este flujo, aquí y antes de
     # la consulta de precios: si falta algo, no se gasta ni un céntimo.
     validar_credenciales_api(_claves_necesarias(args.fase, args.ciclo))
-    ui.separador("Agente de investigación genealógica v10.2")
+    ui.separador(f"Agente de investigación genealógica v{VERSION}")
     # v10.4.1 — PRECIOS VIVOS: antes de gastar un céntimo se pregunta a
     # OpenRouter cuánto cuesta de verdad cada modelo configurado; el estimador
     # y el tope de --presupuesto-max usarán ese precio (x MARGEN_PRECIO_SEGURIDAD).
