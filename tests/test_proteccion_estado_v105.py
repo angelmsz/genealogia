@@ -137,6 +137,34 @@ def test_guardar_json_vacio_sobre_fichero_vacio_si_escribe(tmp_path):
     assert fase2._guardar_json(ruta, [], HALLAZGOS) is True
 
 
+def test_r02_informe_forzar_permite_vaciar_a_proposito(tmp_path, capsys):
+    """R-02 del informe: `forzar=True` es la salida explícita para vaciar un
+    fichero a propósito desde código (y deja el anterior en .bak)."""
+    ruta = tmp_path / HALLAZGOS
+    ruta.write_text(json.dumps([{"persona": f"P{i}"} for i in range(58)]),
+                    encoding="utf-8")
+
+    escrito = fase2._guardar_json(ruta, [], HALLAZGOS, forzar=True)
+
+    salida = capsys.readouterr().out
+    assert escrito is True
+    assert json.loads(ruta.read_text(encoding="utf-8")) == []
+    assert "forzar=True" in salida and "vaciado intencionado" in salida
+    respaldo = json.loads((tmp_path / (HALLAZGOS + ".bak"))
+                          .read_text(encoding="utf-8"))
+    assert len(respaldo) == 58          # el anterior no se pierde: queda en .bak
+
+
+def test_r02_informe_sin_forzar_sigue_protegiendo(tmp_path, capsys):
+    """El valor por defecto NO cambia: sin `forzar`, el vacío no pisa nada."""
+    ruta = tmp_path / HALLAZGOS
+    ruta.write_text(json.dumps([{"persona": "P"}]), encoding="utf-8")
+
+    assert fase2._guardar_json(ruta, [], HALLAZGOS) is False
+    capsys.readouterr()
+    assert len(json.loads(ruta.read_text(encoding="utf-8"))) == 1
+
+
 def test_r02_la_guarda_bloquea_el_vacio_y_es_posterior_al_incidente(tmp_path,
                                                                    capsys):
     """R-02 (revisión externa): verificación de la guarda y por qué el incidente

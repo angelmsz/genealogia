@@ -57,7 +57,7 @@ LOTE_AUDITORIA = 8
 MAX_CHARS_AUDITORIA = 8_000
 
 
-def _guardar_json(ruta, datos, etiqueta: str) -> bool:
+def _guardar_json(ruta, datos, etiqueta: str, forzar: bool = False) -> bool:
     """Guarda `datos` (JSON) en `ruta` sin poder perder lo que había.
 
     v10.4.2 — dos redes de seguridad:
@@ -68,12 +68,18 @@ def _guardar_json(ruta, datos, etiqueta: str) -> bool:
          conserva lo anterior. Un fichero desactualizado se arregla repitiendo
          la fase 2; un fichero borrado, no.
 
+    `forzar=True` (R-02 del informe de revisión) es la salida EXPLÍCITA para
+    vaciar un fichero A PROPÓSITO desde código (una herramienta de
+    mantenimiento, una prueba). Escribe aunque el resultado sea vacío y avisa en
+    el log de que se ha pedido. Nunca se activa por accidente: hay que
+    escribirlo.
+
     Devuelve True si escribió.
 
     R-02 (revisión externa) — ¿bloquea escribir ``[]``? SÍ, siempre que el
-    fichero que hay tenga contenido; si no había fichero (o estaba vacío), se
-    escribe ``[]`` sin drama, porque no se pierde nada. Verificado en
-    tests/test_proteccion_estado_v105.py.
+    fichero que hay tenga contenido y no se pase `forzar=True`; si no había
+    fichero (o estaba vacío), se escribe ``[]`` sin drama, porque no se pierde
+    nada. Verificado en tests/test_proteccion_estado_v105.py.
 
     ¿Y por qué el accidente del 13/09 pasó "a pesar" de esta guarda? Porque la
     guarda NO EXISTÍA entonces: el 13/09 a las 23:55 la fase 2 escribía con un
@@ -86,7 +92,7 @@ def _guardar_json(ruta, datos, etiqueta: str) -> bool:
     extracción guardaba los lotes fallidos como "vacío" (arreglado en el
     BLOQUE 0) y la escritura no tenía red.
     """
-    if not tenia_contenido(datos):
+    if not forzar and not tenia_contenido(datos):
         try:
             anterior = json.loads(ruta.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -98,6 +104,10 @@ def _guardar_json(ruta, datos, etiqueta: str) -> bool:
                 f"contenido. Se conserva el anterior; si de verdad quieres "
                 f"vaciar el fichero, hazlo a mano.")
             return False
+    if forzar and not tenia_contenido(datos):
+        ui.log_warn(f"forzar=True: se sobrescribe {etiqueta} con un resultado "
+                    f"vacío porque se ha pedido expresamente (vaciado "
+                    f"intencionado desde código). El anterior queda en .bak.")
     respaldo = escribir_con_backup(
         ruta, json.dumps(datos, ensure_ascii=False, indent=2))
     if respaldo:
