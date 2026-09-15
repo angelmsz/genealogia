@@ -239,3 +239,36 @@ def test_el_flag_existe_y_sale_antes_de_la_validacion_de_claves():
             < src.index("validar_credenciales_api("))
     assert (src.index("if args.limpiar_cache_hallazgos:")
             < src.index("_fijar_precios_del_dia()"))
+
+
+# ==================== 4. R-06: modo NO interactivo (-y / --si) =============
+
+def test_comando_con_asumir_no_pregunta_y_borra(tmp_path, monkeypatch, capsys):
+    """R-06: con `asumir=True` (CLI -y/--si) no se pide nada por teclado, pero
+    el desglose se imprime y la copia previa se hace igual."""
+    _comando(tmp_path, monkeypatch,
+             [("buena", BUENO, "ok"), ("sin_marca", "[]", None)], [])
+
+    codigo = main.limpiar_cache_hallazgos_comando(asumir=True)
+
+    salida = capsys.readouterr().out
+    assert codigo == 0
+    assert "modo no interactivo" in salida
+    assert "copia de seguridad" in salida
+    assert "1 filas sospechosas borradas" in salida
+    assert (tmp_path / "cache_agente.db.bak").exists()
+    despues = sqlite3.connect(tmp_path / "cache_agente.db")
+    assert _hashes(despues) == {"buena"}
+
+
+def test_el_flag_si_esta_en_el_cli_y_no_toca_los_flujos_que_gastan():
+    """R-06: -y/--si afecta SOLO al comando de mantenimiento."""
+    import inspect
+    src = inspect.getsource(main.main)
+    # OJO: "args.si" es subcadena de "args.sin_cache": hay que excluir esa.
+    usos = [linea for linea in src.splitlines()
+            if "args.si" in linea and "sin_cache" not in linea]
+    assert len(usos) == 1, usos
+    assert "limpiar_cache_hallazgos_comando(asumir=args.si)" in usos[0]
+    # Y el texto de la ayuda deja claro que NO afecta a los flujos de gasto.
+    assert "NO afecta a los flujos que gastan" in src

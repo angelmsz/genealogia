@@ -644,17 +644,21 @@ def _confirmar(pregunta: str, defecto: bool = False) -> bool:
     return respuesta in ("s", "si", "sí", "y", "yes")
 
 
-def limpiar_cache_hallazgos_comando() -> int:
-    """--limpiar-cache-hallazgos: borra las filas inútiles del caché de
+def limpiar_cache_hallazgos_comando(asumir: bool = False) -> int:
+    """--limpiar-cache-hallazgos: borra las filas sospechosas del caché de
     extracción (0 tokens, 0 red).
 
     POR QUÉ EXISTE: la versión anterior de la fase 2 guardaba ``[]`` en
     hallazgos_por_hash cuando un lote FALLABA, y esos fragmentos ya no se volvían
     a extraer nunca (es lo que produjo la fase 2 que devolvía 0 hallazgos y
-    escribía [] el 13/09). Este comando borra SOLO esas filas: las que tienen
-    hallazgos se quedan intactas. Antes de tocar nada enseña cuántas son, pide
-    confirmación (Enter = n) y deja copia de la base de datos en
-    cache_agente.db.bak.
+    escribía [] el 13/09). Este comando borra SOLO las filas sospechosas: las
+    que traen hallazgos y las vacías LEGÍTIMAS (marcadas como tales) se quedan
+    intactas. Antes de tocar nada enseña el desglose, pide confirmación
+    (Enter = n) y deja copia de la base de datos en cache_agente.db.bak.
+
+    `asumir=True` (CLI: -y/--si, R-06) salta la pregunta para entornos no
+    interactivos (scripts, tareas programadas). NO salta nada más: el desglose
+    se imprime igual y la copia previa se hace igual.
     """
     from agent.fase2 import limpiar_cache_hallazgos, resumen_cache_hallazgos
     conn = get_db()
@@ -676,8 +680,11 @@ def limpiar_cache_hallazgos_comando() -> int:
                     f"volverá a extraer esos fragmentos, y eso SÍ cuesta "
                     f"dinero. Las vacías legítimas (el modelo respondió que ahí "
                     f"no había nada) NO se tocan.")
-        if not _confirmar(f"¿Borrar las {datos['sospechosas']} filas "
-                          f"sospechosas de {datos['total']}? (s/n, Enter = n): "):
+        if asumir:
+            ui.log("--si/-y: se borra sin preguntar (modo no interactivo).")
+        elif not _confirmar(f"¿Borrar las {datos['sospechosas']} filas "
+                            f"sospechosas de {datos['total']}? "
+                            f"(s/n, Enter = n): "):
             ui.log("Cancelado: no se ha borrado nada.")
             return 0
         if copiar_con_backup(BASE_DIR / DB_PATH):
@@ -753,6 +760,12 @@ def main() -> None:
                              "verificado del último arbol_refinado.json "
                              "(backup con marca de tiempo + registro "
                              "append-only) y recalcula la frontera")
+    parser.add_argument("-y", "--si", action="store_true", dest="si",
+                        help="(R-06) NO pedir confirmación en los comandos de "
+                             "mantenimiento (--limpiar-cache-hallazgos): para "
+                             "entornos no interactivos (scripts, tareas "
+                             "programadas). NO afecta a los flujos que gastan "
+                             "dinero, que siguen preguntando siempre")
     parser.add_argument("--ensenada", action="store_true",
                         help="descenso inverso: busca los municipios del árbol "
                              "en el Catastro de Ensenada (1752) y escribe "
@@ -835,7 +848,7 @@ def main() -> None:
     if args.limpiar_cache_hallazgos:
         # v10.4.2: mantenimiento offline de la caché de extracción. Como los
         # demás modos que no gastan, sale ANTES de la validación de claves.
-        raise SystemExit(limpiar_cache_hallazgos_comando())
+        raise SystemExit(limpiar_cache_hallazgos_comando(asumir=args.si))
 
     if args.solicitudes:
         generar_solicitudes()
