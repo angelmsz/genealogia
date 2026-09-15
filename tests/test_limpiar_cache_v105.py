@@ -1,6 +1,6 @@
 """
-tests/test_limpiar_cache_v105.py — PROPUESTA 1: `--limpiar-cache-hallazgos`
-purga SOLO las filas inútiles del caché de extracción (v10.4.2).
+tests/test_limpiar_cache_v105.py — PROPUESTA 1 + R-03: `--limpiar-cache-hallazgos`
+purga SOLO las filas sospechosas del caché de extracción (v10.4.2).
 
 PARA QUÉ
 --------
@@ -10,8 +10,17 @@ NUNCA (la fase 2 lo da por hecho), así que la caché queda "envenenada" y la
 extracción devuelve 0 hallazgos para siempre. Es la mitad del incidente del
 13/09.
 
-Este comando borra esas filas —y solo esas— con tres garantías:
-  1. antes dice CUÁNTAS va a borrar (y cuántas hay en total);
+R-03 (revisión externa): un ``[]`` puede ser DOS cosas opuestas, y no se puede
+borrar a ciegas:
+  - "el modelo dice que en este fragmento no hay nada" (legítimo: el documento
+    no contenía datos) -> NO se purga;
+  - "este lote falló y lo apunté como vacío" (el bug) -> SÍ se purga.
+Para distinguirlas, la tabla gana un MARCADOR de estado:
+  'ok' (trae hallazgos) | 'vacio' (vacío legítimo) | 'fallo' (reservado) |
+  NULL (fila antigua, sin marca: sospechosa).
+
+Este comando borra las sospechosas —y solo esas— con tres garantías:
+  1. antes dice CUÁNTAS va a borrar y desglosa el resto;
   2. pide confirmación explícita con Enter = n;
   3. deja copia de la base de datos en `cache_agente.db.bak`.
 
@@ -32,16 +41,33 @@ BUENO = json.dumps([{"persona": "P", "url_fuente": "https://x/1"}])
 
 # ============================== UTILIDADES =================================
 
-def _bd(tmp_path, filas: list[tuple[str, str]],
-        nombre: str = "cache_test.db") -> sqlite3.Connection:
-    """BD temporal con la tabla de la caché y las filas indicadas."""
+def _bd(tmp_path, filas, nombre: str = "cache_test.db",
+        con_estado: bool = True) -> sqlite3.Connection:
+    """BD temporal con la tabla de la caché.
+
+    `filas` es una lista de (hash, contenido) o (hash, contenido, estado).
+    Con `con_estado=False` se crea la tabla ANTIGUA (3 columnas, sin marcador)
+    para comprobar que nada revienta con una BD sin migrar.
+    """
     conn = sqlite3.connect(tmp_path / nombre)
-    conn.execute("CREATE TABLE IF NOT EXISTS hallazgos_por_hash "
-                 "(hash TEXT, modelo TEXT, hallazgos TEXT, "
-                 " PRIMARY KEY (hash, modelo))")
-    for hash_, contenido in filas:
-        conn.execute("INSERT OR REPLACE INTO hallazgos_por_hash VALUES (?,?,?)",
-                     (hash_, "modelo/x", contenido))
+    if con_estado:
+        conn.execute("CREATE TABLE IF NOT EXISTS hallazgos_por_hash "
+                     "(hash TEXT, modelo TEXT, hallazgos TEXT, estado TEXT, "
+                     " PRIMARY KEY (hash, modelo))")
+    else:
+        conn.execute("CREATE TABLE IF NOT EXISTS hallazgos_por_hash "
+                     "(hash TEXT, modelo TEXT, hallazgos TEXT, "
+                     " PRIMARY KEY (hash, modelo))")
+    for fila in filas:
+        if con_estado:
+            hash_, contenido, estado = (list(fila) + [None])[:3]
+            conn.execute("INSERT OR REPLACE INTO hallazgos_por_hash "
+                         "VALUES (?,?,?,?)", (hash_, "modelo/x", contenido,
+                                              estado))
+        else:
+            hash_, contenido = fila[0], fila[1]
+            conn.execute("INSERT OR REPLACE INTO hallazgos_por_hash "
+                         "VALUES (?,?,?)", (hash_, "modelo/x", contenido))
     conn.commit()
     return conn
 
@@ -50,7 +76,7 @@ def _hashes(conn) -> set[str]:
     return {f[0] for f in conn.execute("SELECT hash FROM hallazgos_por_hash")}
 
 
-# ==================== 1. QUÉ SE CONSIDERA "INÚTIL" =========================
+# ==================== 1. QUÉ SE CONSIDERA "SOSPECHOSA" =====================
 
 @pytest.mark.parametrize("contenido,inutil", [
     ("[]", True),                       # lo que dejaba un lote fallido
@@ -64,40 +90,84 @@ def test_fila_sin_hallazgos(contenido, inutil):
     assert fase2._fila_sin_hallazgos(contenido) is inutil
 
 
-def test_filas_vacias_detecta_solo_las_inutiles(tmp_path):
-    conn = _bd(tmp_path, [("buena1", BUENO), ("vacia", "[]"),
-                          ("rota", "{no json"), ("buena2", BUENO)])
+def test_purgables_detecta_solo_las_sospechosas(tmp_path):
+    """R-03: vacío legítimo ('vacio') NO se purga; sin marca SÍ."""
+    conn = _bd(tmp_path, [("buena1", BUENO, "ok"),
+                          ("legitima", "[]", "vacio"),
+                          ("sin_marca", "[]", None),
+                          ("fallo", "[]", "fallo"),
+                          ("rota", "{no json", "ok"),
+                          ("buena2", BUENO, "ok")])
 
-    assert sorted(fase2.filas_cache_vacias(conn)) == ["rota", "vacia"]
+    assert sorted(fase2.filas_cache_purgables(conn)) == ["fallo", "rota",
+                                                        "sin_marca"]
 
 
-# ==================== 2. LAS BUENAS SOBREVIVEN =============================
+def test_resumen_desglosa_la_cache(tmp_path):
+    conn = _bd(tmp_path, [("buena", BUENO, "ok"),
+                          ("legitima", "[]", "vacio"),
+                          ("sin_marca", "[]", None)])
 
-def test_limpiar_borra_solo_las_vacias_y_devuelve_cuantas(tmp_path):
-    conn = _bd(tmp_path, [("buena1", BUENO), ("vacia", "[]"),
-                          ("nula", "null"), ("buena2", BUENO)])
+    assert fase2.resumen_cache_hallazgos(conn) == {
+        "total": 3, "con_hallazgos": 1, "vacios_legitimos": 1,
+        "sospechosas": 1}
+
+
+# ==================== 2. LIMPIAR (las buenas sobreviven) ===================
+
+def test_limpiar_borra_solo_las_sospechosas(tmp_path):
+    conn = _bd(tmp_path, [("buena1", BUENO, "ok"),
+                          ("legitima", "[]", "vacio"),
+                          ("sin_marca", "[]", None),
+                          ("nula", "null", "ok"),
+                          ("buena2", BUENO, "ok")])
 
     borradas = fase2.limpiar_cache_hallazgos(conn)
 
     assert borradas == 2
-    assert _hashes(conn) == {"buena1", "buena2"}      # las buenas, intactas
-    assert fase2.filas_cache_vacias(conn) == []       # y ya no queda nada
+    assert _hashes(conn) == {"buena1", "legitima", "buena2"}
+    assert fase2.filas_cache_purgables(conn) == []
 
 
 def test_limpiar_sin_nada_que_borrar(tmp_path):
-    conn = _bd(tmp_path, [("buena", BUENO)])
+    conn = _bd(tmp_path, [("buena", BUENO, "ok"),
+                          ("legitima", "[]", "vacio")])
     assert fase2.limpiar_cache_hallazgos(conn) == 0
-    assert _hashes(conn) == {"buena"}
+    assert _hashes(conn) == {"buena", "legitima"}
+
+
+def test_bd_sin_columna_estado_no_revienta(tmp_path):
+    """Una BD sin migrar (tabla de 3 columnas) se lee igual: las filas sin
+    marca son sospechosas, que es la dirección segura."""
+    conn = _bd(tmp_path, [("buena", BUENO), ("vacia", "[]")],
+               con_estado=False)
+
+    assert sorted(fase2.filas_cache_purgables(conn)) == ["vacia"]
+    assert fase2.resumen_cache_hallazgos(conn)["total"] == 2
+
+
+def test_cachear_hallazgos_escribe_la_marca(tmp_path):
+    """El marcador se escribe al cachear: 'vacio' cuando el modelo dijo que no
+    había nada, 'ok' cuando trae hallazgos."""
+    conn = _bd(tmp_path, [], con_estado=True)
+
+    fase2._cachear_hallazgos(conn, "h1", "vacio", [])
+    fase2._cachear_hallazgos(conn, "h2", "ok", [{"persona": "P"}])
+
+    estados = dict(conn.execute("SELECT hash, estado FROM hallazgos_por_hash"))
+    assert estados == {"h1": "vacio", "h2": "ok"}
+    assert fase2.filas_cache_purgables(conn) == []
 
 
 # ==================== 3. EL COMANDO (copia + confirmación) =================
 
-def _comando(tmp_path, monkeypatch, filas, respuestas):
+def _comando(tmp_path, monkeypatch, filas, respuestas, con_estado=True):
     """Prepara una BD temporal, la conecta a main y lanza el comando."""
     import config
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)     # get_db() -> tmp
     monkeypatch.setattr(main, "BASE_DIR", tmp_path)       # copia del .bak
-    conn = _bd(tmp_path, filas, nombre="cache_agente.db")
+    conn = _bd(tmp_path, filas, nombre="cache_agente.db",
+               con_estado=con_estado)
     conn.close()                                          # get_db() reabre
     cola = list(respuestas)
 
@@ -112,45 +182,50 @@ def _comando(tmp_path, monkeypatch, filas, respuestas):
 
 def test_comando_enter_no_borra_nada(tmp_path, monkeypatch, capsys):
     """Enter en la confirmación = n: no se borra y no se deja .bak."""
-    _comando(tmp_path, monkeypatch, [("buena", BUENO), ("vacia", "[]")], [""])
+    _comando(tmp_path, monkeypatch,
+             [("buena", BUENO, "ok"), ("sin_marca", "[]", None)], [""])
 
     codigo = main.limpiar_cache_hallazgos_comando()
 
     salida = capsys.readouterr().out
     assert codigo == 0
-    assert "1 sin hallazgos" in salida
+    assert "1 sospechosas" in salida
     assert "Cancelado" in salida
     assert not (tmp_path / "cache_agente.db.bak").exists()
     conn = sqlite3.connect(tmp_path / "cache_agente.db")
-    assert _hashes(conn) == {"buena", "vacia"}        # nada borrado
+    assert _hashes(conn) == {"buena", "sin_marca"}        # nada borrado
 
 
 def test_comando_con_si_borra_y_deja_copia(tmp_path, monkeypatch, capsys):
-    _comando(tmp_path, monkeypatch, [("buena", BUENO), ("vacia", "[]")], ["s"])
+    _comando(tmp_path, monkeypatch,
+             [("buena", BUENO, "ok"), ("legitima", "[]", "vacio"),
+              ("sin_marca", "[]", None)], ["s"])
 
     codigo = main.limpiar_cache_hallazgos_comando()
 
     salida = capsys.readouterr().out
     assert codigo == 0
     assert "copia de seguridad" in salida
-    assert "1 filas inútiles borradas" in salida
+    assert "1 filas sospechosas borradas" in salida
     assert (tmp_path / "cache_agente.db.bak").exists()
-    # La copia conserva la fila vacía (es la foto de ANTES) y la buena.
+    # La copia conserva la foto de ANTES (las tres filas)...
     antes = sqlite3.connect(tmp_path / "cache_agente.db.bak")
-    assert _hashes(antes) == {"buena", "vacia"}
-    # Y la BD viva se queda solo con la buena.
+    assert _hashes(antes) == {"buena", "legitima", "sin_marca"}
+    # ...y la BD viva se queda con la buena y la vacía LEGÍTIMA.
     despues = sqlite3.connect(tmp_path / "cache_agente.db")
-    assert _hashes(despues) == {"buena"}
+    assert _hashes(despues) == {"buena", "legitima"}
 
 
-def test_comando_sin_filas_inutiles_no_pregunta(tmp_path, monkeypatch, capsys):
-    _comando(tmp_path, monkeypatch, [("buena", BUENO)], [])
+def test_comando_sin_sospechosas_no_pregunta(tmp_path, monkeypatch, capsys):
+    _comando(tmp_path, monkeypatch,
+             [("buena", BUENO, "ok"), ("legitima", "[]", "vacio")], [])
 
     codigo = main.limpiar_cache_hallazgos_comando()
 
     salida = capsys.readouterr().out
     assert codigo == 0
     assert "No hay nada que limpiar" in salida
+    assert "1 vacías legítimas" in salida
     assert not (tmp_path / "cache_agente.db.bak").exists()
 
 

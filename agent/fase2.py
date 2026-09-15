@@ -24,6 +24,7 @@ Flujo:
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -287,7 +288,8 @@ def extraer_hallazgos(fragmentos: list[dict], conn=None,
             #      (400, timeout, modelo saturado) y cachearlo lo convertía en
             #      "aquí no hay nada" para siempre. Este era el bug del 13/09.
             #   2. el modelo respondió "nada" para el lote ENTERO -> se cachea
-            #      la lista vacía: es un resultado honesto.
+            #      la lista vacía MARCADA como 'vacio': es un resultado honesto,
+            #      y el marcador permite no confundirlo con un fallo (R-03).
             #   3. el lote trajo hallazgos pero ninguno con la URL de este
             #      fragmento -> no se puede afirmar que esté vacío: no se
             #      cachea (se reintentará y costará una llamada, pero nunca se
@@ -301,13 +303,8 @@ def extraer_hallazgos(fragmentos: list[dict], conn=None,
                                == (f.get("url") or "")]
                     if not propios and not respuesta_vacia:
                         continue
-                    with DB_LOCK:
-                        conn.execute(
-                            "INSERT OR REPLACE INTO hallazgos_por_hash "
-                            "VALUES (?,?,?)",
-                            (_hash_fragmento(f), MODELO_FASE2,
-                             json.dumps(propios, ensure_ascii=False)))
-                        conn.commit()
+                    _cachear_hallazgos(conn, _hash_fragmento(f),
+                                       "ok" if propios else "vacio", propios)
         hallazgos.extend(cacheados)
     return hallazgos
 
@@ -318,11 +315,9 @@ def _fila_sin_hallazgos(texto: str | None) -> bool:
     """True si el contenido guardado en una fila de la caché no aporta nada.
 
     Cuenta como inútil la lista vacía (``[]``) y todo lo que no sea una lista
-    con elementos (JSON ilegible, ``null``...). Ojo: NO se puede distinguir una
-    lista vacía "honesta" (el modelo dijo que en ese fragmento no hay nada) de
-    una que escribió la versión anterior al fallar un lote. Ante la duda, la
-    fila se considera inútil: volver a preguntar al modelo cuesta dinero, dar
-    por vacío un fragmento que no lo está cuesta un hallazgo perdido.
+    con elementos (JSON ilegible, ``null``...). Por sí sola NO decide si la
+    fila se purga: eso depende del marcador de estado (ver
+    filas_cache_purgables).
     """
     try:
         datos = json.loads(texto if texto else "[]")
@@ -331,22 +326,86 @@ def _fila_sin_hallazgos(texto: str | None) -> bool:
     return not (isinstance(datos, list) and datos)
 
 
-def filas_cache_vacias(conn) -> list[str]:
-    """Hashes de las filas de hallazgos_por_hash que no aportan hallazgos."""
-    filas = conn.execute("SELECT hash, hallazgos FROM hallazgos_por_hash"
-                         ).fetchall()
-    return [hash_ for hash_, texto in filas if _fila_sin_hallazgos(texto)]
+def _cachear_hallazgos(conn, hash_: str, estado: str, propios: list) -> None:
+    """Guarda una fila de la caché de extracción CON su marcador de estado.
+
+    `estado` es 'ok' (trae hallazgos) o 'vacio' (el modelo respondió que en ese
+    fragmento no hay nada). Un fallo NO se cachea (nunca llega aquí).
+
+    El marcador es lo que permite distinguir después un vacío legítimo de una
+    fila que dejó la versión antigua al fallar (R-03). Si la BD no tiene la
+    columna (sin migrar), se guarda sin marca y esa fila quedará como
+    sospechosa al limpiar, que es la dirección segura.
+    """
+    texto = json.dumps(propios, ensure_ascii=False)
+    with DB_LOCK:
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO hallazgos_por_hash "
+                "(hash, modelo, hallazgos, estado) VALUES (?,?,?,?)",
+                (hash_, MODELO_FASE2, texto, estado))
+        except sqlite3.OperationalError:
+            conn.execute("INSERT OR REPLACE INTO hallazgos_por_hash "
+                         "VALUES (?,?,?)", (hash_, MODELO_FASE2, texto))
+        conn.commit()
+
+
+def _leer_filas_cache(conn) -> list[tuple[str, str | None, str | None]]:
+    """(hash, hallazgos, estado) de todas las filas, tolerando BD sin migrar."""
+    try:
+        return conn.execute("SELECT hash, hallazgos, estado FROM "
+                            "hallazgos_por_hash").fetchall()
+    except sqlite3.OperationalError:
+        return [(h, t, None) for h, t in
+                conn.execute("SELECT hash, hallazgos FROM hallazgos_por_hash")]
+
+
+def filas_cache_purgables(conn) -> list[str]:
+    """Hashes de las filas que conviene BORRAR para volver a extraer (R-03).
+
+    Regla: se purga lo que no aporta hallazgos Y NO está marcado como vacío
+    legítimo. Es decir:
+      - ``[]`` SIN marca (NULL): las que dejó la versión anterior al fallar un
+        lote, guardadas como si fueran un resultado. Son las sospechosas.
+      - marcadas 'fallo': por si alguna versión intermedia las dejó.
+      - JSON ilegible / ``null``: no aportan nada utilizable.
+    NO se tocan:
+      - las que traen hallazgos ('ok'), ni
+      - las marcadas 'vacio': ahí el modelo dijo DE VERDAD que no había nada
+        (documentos que realmente no contenían datos, que es lo que pide R-03).
+    """
+    purgables: list[str] = []
+    for hash_, texto, estado in _leer_filas_cache(conn):
+        if estado == "vacio":
+            continue
+        if estado == "fallo" or _fila_sin_hallazgos(texto):
+            purgables.append(hash_)
+    return purgables
+
+
+def resumen_cache_hallazgos(conn) -> dict:
+    """Recuento de la caché de extracción por tipo, para poder informarlo.
+
+    Devuelve {'total', 'con_hallazgos', 'vacios_legitimos', 'sospechosas'}.
+    """
+    filas = _leer_filas_cache(conn)
+    con_hallazgos = sum(1 for _, texto, estado in filas
+                        if estado != "fallo" and not _fila_sin_hallazgos(texto))
+    vacios = sum(1 for _, _, estado in filas if estado == "vacio")
+    return {"total": len(filas), "con_hallazgos": con_hallazgos,
+            "vacios_legitimos": vacios,
+            "sospechosas": len(filas_cache_purgables(conn))}
 
 
 def limpiar_cache_hallazgos(conn) -> int:
-    """Borra las filas inútiles de la caché de extracción. Devuelve cuántas.
+    """Borra las filas sospechosas de la caché de extracción. Devuelve cuántas.
 
     Es la vía para desenvenenar una caché que la versión anterior llenó de
-    vacíos: hasta que no se borran, esos fragmentos no se vuelven a extraer
-    NUNCA (la fase 2 los da por hechos). Se borra SOLO lo que no aporta nada:
-    los fragmentos con hallazgos se quedan intactos.
+    vacíos al fallar: hasta que no se borran, esos fragmentos no se vuelven a
+    extraer NUNCA (la fase 2 los da por hechos). Se borra SOLO lo que no aporta
+    nada y no está marcado como vacío legítimo.
     """
-    hashes = filas_cache_vacias(conn)
+    hashes = filas_cache_purgables(conn)
     if not hashes:
         return 0
     with DB_LOCK:

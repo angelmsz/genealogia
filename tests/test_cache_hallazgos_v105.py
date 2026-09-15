@@ -101,14 +101,23 @@ def test_atribucion_dudosa_no_se_cachea(tmp_path, monkeypatch):
 
 def test_respuesta_vacia_honesta_si_se_cachea(tmp_path, monkeypatch):
     """Si el modelo responde "nada" para el lote entero, SÍ se cachea la lista
-    vacía: es un resultado honesto y no hay que volver a pagarlo."""
+    vacía: es un resultado honesto y no hay que volver a pagarlo.
+
+    R-03: además queda MARCADA como 'vacio', para que la limpieza de la caché
+    pueda distinguirla de una fila que dejó un fallo (esas van sin marca)."""
     conn = _bd_temporal(tmp_path)
+    conn.execute("ALTER TABLE hallazgos_por_hash ADD COLUMN estado TEXT")
+    conn.commit()
     frag = _fragmento()
     monkeypatch.setattr(fase2, "chat_json", lambda *a, **k: {"hallazgos": []})
 
     fase2.extraer_hallazgos([frag], conn)
 
     assert json.loads(_fila(conn, frag)) == []
+    estado = conn.execute("SELECT estado FROM hallazgos_por_hash WHERE hash=?",
+                          (frag["hash"],)).fetchone()[0]
+    assert estado == "vacio"
+    assert fase2.filas_cache_purgables(conn) == []      # no se purgará
 
 
 def test_fallo_no_contamina_el_resultado_de_los_demas(tmp_path, monkeypatch):

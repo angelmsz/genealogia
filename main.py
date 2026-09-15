@@ -656,32 +656,34 @@ def limpiar_cache_hallazgos_comando() -> int:
     confirmación (Enter = n) y deja copia de la base de datos en
     cache_agente.db.bak.
     """
-    from agent.fase2 import filas_cache_vacias, limpiar_cache_hallazgos
+    from agent.fase2 import limpiar_cache_hallazgos, resumen_cache_hallazgos
     conn = get_db()
     try:
         conn.commit()          # sin transacción abierta al copiar el fichero
-        inutiles = filas_cache_vacias(conn)
-        total = conn.execute("SELECT COUNT(*) FROM hallazgos_por_hash"
-                             ).fetchone()[0]
+        datos = resumen_cache_hallazgos(conn)
         ui.separador("Mantenimiento: caché de extracción de hallazgos")
-        ui.log(f"{DB_PATH}: {total} filas · {len(inutiles)} sin hallazgos "
-               f"(vacías o ilegibles)")
-        if not inutiles:
-            ui.log_ok("No hay nada que limpiar: todas las filas aportan "
-                      "hallazgos.")
+        ui.log(f"{DB_PATH}: {datos['total']} filas · "
+               f"{datos['con_hallazgos']} con hallazgos · "
+               f"{datos['vacios_legitimos']} vacías legítimas (se conservan) · "
+               f"{datos['sospechosas']} sospechosas")
+        if not datos["sospechosas"]:
+            ui.log_ok("No hay nada que limpiar: no hay filas sospechosas.")
             return 0
-        ui.log_warn(f"Esas {len(inutiles)} filas harán que la próxima fase 2 "
-                    f"vuelva a extraer sus fragmentos, y eso SÍ cuesta dinero "
-                    f"(es justo lo que se quiere: volver a preguntar al modelo "
-                    f"en vez de dar el fragmento por vacío).")
-        if not _confirmar(f"¿Borrar las {len(inutiles)} filas inútiles de "
-                          f"{total}? (s/n, Enter = n): "):
+        ui.log_warn(f"Las {datos['sospechosas']} sospechosas son filas SIN "
+                    f"hallazgos y SIN marca de vacío legítimo: las que dejó la "
+                    f"versión anterior al fallar un lote, guardadas como si "
+                    f"fueran un resultado. Al borrarlas, la próxima fase 2 "
+                    f"volverá a extraer esos fragmentos, y eso SÍ cuesta "
+                    f"dinero. Las vacías legítimas (el modelo respondió que ahí "
+                    f"no había nada) NO se tocan.")
+        if not _confirmar(f"¿Borrar las {datos['sospechosas']} filas "
+                          f"sospechosas de {datos['total']}? (s/n, Enter = n): "):
             ui.log("Cancelado: no se ha borrado nada.")
             return 0
         if copiar_con_backup(BASE_DIR / DB_PATH):
             ui.log(f"copia de seguridad del anterior: {DB_PATH}.bak")
         borradas = limpiar_cache_hallazgos(conn)
-        ui.log_ok(f"{borradas} filas inútiles borradas. La próxima fase 2 "
+        ui.log_ok(f"{borradas} filas sospechosas borradas. La próxima fase 2 "
                   f"volverá a extraer esos fragmentos.")
         return 0
     finally:

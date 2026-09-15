@@ -1647,6 +1647,25 @@ def get_db() -> sqlite3.Connection:
         # arrancar: la caché de OCR es una optimización, no una fuente de
         # verdad (los datos están en corpus_bruto.json).
         pass
+    # v10.4.2 (R-03) — MARCADOR de estado de la caché de extracción. La tabla
+    # guardaba solo (hash, modelo, hallazgos), así que un ``[]`` podía ser dos
+    # cosas opuestas: "el modelo dice que aquí no hay nada" (legítimo) o "este
+    # lote FALLÓ y lo apunté como vacío" (el bug del 13/09). Sin distinguirlas,
+    # --limpiar-cache-hallazgos tendría que elegir entre purgar documentos que
+    # de verdad no contenían datos o dejar la caché envenenada para siempre.
+    # Valores: 'ok' (tiene hallazgos), 'vacio' (vacío legítimo), 'fallo'
+    # (reservado). NULL = fila antigua, sin marca: sospechosa.
+    try:
+        columnas = {fila[1] for fila in
+                    conn.execute("PRAGMA table_info(hallazgos_por_hash)")}
+        if "estado" not in columnas:
+            conn.execute("ALTER TABLE hallazgos_por_hash ADD COLUMN estado TEXT")
+        conn.commit()
+    except Exception:
+        # Igual que arriba: una BD vieja o de solo-lectura no puede impedir
+        # arrancar. Sin la columna, las filas quedan "sin marcar" y la limpieza
+        # las trata como sospechosas (la dirección segura).
+        pass
     return conn
 
 

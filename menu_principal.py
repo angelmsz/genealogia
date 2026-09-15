@@ -107,10 +107,10 @@ CHULETA_AVANZADOS = (
      "recuperar fragmentos que una versión anterior guardó como vacíos. "
      "GASTA (vuelve a extraer todo el corpus)."),
     ("--limpiar-cache-hallazgos",
-     "borra del caché de extracción SOLO las filas que no aportan hallazgos "
-     "(las que dejó la versión anterior al fallar un lote), para que la fase 2 "
-     "vuelva a extraerlas. Pide confirmación y deja cache_agente.db.bak. No "
-     "gasta."),
+     "borra del caché de extracción SOLO las filas sospechosas (sin hallazgos y "
+     "sin marca de vacío legítimo: las que dejó la versión anterior al fallar un "
+     "lote), para que la fase 2 vuelva a extraerlas. Pide confirmación y deja "
+     "cache_agente.db.bak. No gasta."),
 )
 CANDIDATOS_INTERPRETE = (
     Path(".venv") / "Scripts" / "python.exe",   # Windows
