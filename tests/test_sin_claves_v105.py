@@ -10,7 +10,8 @@ TAVILY_API_KEY u OPENROUTER_API_KEY. Consecuencias reales:
   - "no tengo claves" se convertía en "no puedo ni arrancar": ni --probar-ocr
     (OCR 100% local, no usa la nube), ni --frontera, ni --reclasificar, ni
     --diagnostico, ni resumen_noche.py funcionaban sin .env;
-  - los tests y lanzador.py tenían que inventarse claves falsas solo para
+  - los tests y el menú antiguo (lanzador.py, retirado en la v10.4.2) tenían
+    que inventarse claves falsas solo para
     poder importar;
   - y sobre todo: la exigencia estaba en el sitio equivocado, así que un flujo
     que SÍ gasta habría muerto a mitad, no al principio.

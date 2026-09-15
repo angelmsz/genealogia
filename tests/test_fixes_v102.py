@@ -541,8 +541,8 @@ def test_resumen_noche_arranca_y_resume(proyecto_resumen):
 
 
 def test_resumen_noche_proyecto_vacio_devuelve_1(tmp_path):
-    """Sin artefactos que resumir, avisa y devuelve código 1 (para
-    scripts/lanzador), sin traceback."""
+    """Sin artefactos que resumir, avisa y devuelve código 1 (para que quien lo
+    llame, p. ej. el menú, sepa que no había nada), sin traceback."""
     proj = tmp_path / "genealogia_vacia"
     proj.mkdir()
     for item in ("config.py", "resumen_noche.py", "utils", "scrapers"):

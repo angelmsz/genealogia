@@ -82,7 +82,7 @@ from utils.llm import GASTO, PresupuestoExcedido
 # v10.4.1 (arreglo 1): el cliente de Tavily se construye en el PRIMER uso,
 # no al importar. Antes se creaba aquí mismo y el paquete revienta si la
 # clave está vacía (el constructor la exige): importar scrapers.web —lo
-# hacen main, agent/fase1, lanzador...— obligaba a tener .env incluso para
+# hacen main, agent/fase1, el menú...— obligaba a tener .env incluso para
 # comandos que no buscan en la web (--probar-ocr, --frontera, --aceptar).
 def _crear_cliente_tavily():
     if not TAVILY_API_KEY:
@@ -695,7 +695,7 @@ def llamacpp_disponible(timeout: float | None = None) -> tuple[bool, str]:
     GET corto a {OCR_LLAMACPP_URL}/health (validado también contra /v1/models
     para leer el modelo cargado). Devuelve (True, id_modelo) si responde o
     (False, motivo_del_fallo) si no. Nunca lanza excepciones: la usan
-    diagnostico() (agent/gedcom.py) y el chequeo del lanzador.py.
+    diagnostico() (agent/gedcom.py) y la cabecera del menú.
 
     v10.1: el modelo que el servidor dice servir se incluye en el log y, si
     su nombre no parece corresponder a la familia configurada

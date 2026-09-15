@@ -910,7 +910,7 @@ def _aplicar_evidencia_al_arbol(consolidado: dict,
        Coincidencias débiles) recalculado de los hallazgos; el párrafo
        del LLM se conserva a continuación.
     3. resumen_evidencia: las 3 listas con totales, para consumo
-       programático (informe de progreso, --frontera, lanzador).
+       programático (informe de progreso, --frontera, menú).
     """
     if not isinstance(consolidado, dict):
         return

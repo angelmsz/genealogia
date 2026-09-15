@@ -106,7 +106,7 @@ _UI_LOCK = threading.Lock()
 #
 # Reglas de diseño:
 #   - Está APAGADO hasta que alguien llame a iniciar_log() (lo hacen main.py
-#     y lanzador.py al arrancar): así los tests, los imports sueltos y
+#     y el menú al arrancar): así los tests, los imports sueltos y
 #     cualquier script auxiliar NO escriben ficheros por sorpresa.
 #   - Escribir el registro NUNCA puede tumbar al agente: si el disco falla,
 #     se apaga y la investigación continúa.
@@ -173,7 +173,7 @@ def iniciar_log(dir_log=None, extra: str = "") -> Optional[str]:
         dir_log.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         _RUTA_LOG = dir_log / f"agente_{ts}.log"
-        # Dos acciones dentro del MISMO segundo (menú del lanzador) no pueden
+        # Dos acciones dentro del MISMO segundo (menú de tareas) no pueden
         # machacarse el registro: se añade un sufijo.
         n = 2
         while _RUTA_LOG.exists():

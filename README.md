@@ -7,11 +7,11 @@ las correcciones v4.3 (verificación en vivo + test de integración), las
 dos grandes novedades **v9.0**, la **revisión de fondo v9.1**, la v9.2, la
 **v10.0 (OCR 100% local)** y la **v10.1 (llama.cpp multi-modelo)**:
 
-- **Lanzador con menú interactivo** (`lanzador.py` / `lanzador.ps1`):
-  todas las opciones del agente en un menú numerado, con valores por
-  defecto sensatos, el comando equivalente visible antes de ejecutar
-  (aprendes los flags sin memorizarlos), el gasto de la sesión siempre
-  a la vista y Ctrl+C sin tracebacks feos.
+- **Menú de tareas** (`menu_principal.py` / `Menu.bat`):
+  las tareas comunes en un menú numerado (pull, tests, diagnóstico, fases,
+  commit, frontera, OCR, dependencias, chuleta), con el comando equivalente
+  (aprendes los flags sin memorizarlos), un log propio de cada ejecución y
+  Ctrl+C sin tracebacks feos.
 - **v10.1 — llama.cpp MULTI-MODELO**: el backend `llamacpp` ahora sirve
   tres familias de modelo OCR con el mismo cliente HTTP — GLM-OCR (0.9B,
   nuevo default: español explícito, ~2.5 GB VRAM), HunyuanOCR-1.5 (SOTA,
@@ -73,76 +73,70 @@ Y todo lo de la v4.3 sigue igual (no se ha roto nada):
   el OCR local de llama.cpp (`OCR_BACKEND=llamacpp`; familia
   glm-ocr/hunyuan/olmocr2) o fallan de forma explícita (v10.0: nunca a
   la nube).
-- **232 pruebas automáticas** (`python -m pytest tests/ -q`)
+- **463 pruebas automáticas** (`python -m pytest tests/ -q`)
   que vigilan todas estas garantías (46 de la v4.2 + 20 de la v4.3 + 42
   de la v9.0 + 62 de la v9.1 + 12 de la v9.2 + 26 de la v10.0 + 24 de la
   v10.1: OCR 100% local con 0 llamadas a la nube, salto de generación en
   3 formatos, SIGA sin fallback y llama.cpp multi-modelo por familia).
 
-## Inicio rápido (v9.0)
+## Inicio rápido (v10.4.2)
 
-La forma más fácil de usar el agente es el **lanzador con menú**:
+La forma más fácil de usar el agente es el **menú de tareas**
+(`menu_principal.py`):
 
 ```
-Windows:   doble clic en lanzador.ps1   (o en una terminal: python lanzador.py)
-Linux/Mac: python3 lanzador.py
+Windows:   doble clic en Menu.bat  (o en una terminal: .venv\Scripts\python.exe menu_principal.py)
+Linux/Mac: python3 menu_principal.py
 ```
 
-El menú cubre TODAS las opciones del agente (investigación completa,
-fases sueltas, autopiloto, filtrar por personas, solicitudes, Ensenada,
-diagnóstico, conectores, importar fotos, commit del árbol). Al arrancar
-hace un chequeo silencioso (equivalente a `--diagnostico`, sin gastar
-tokens) y te resume en una línea si está todo OK; antes de cada acción
-que gasta dinero te enseña el **comando equivalente** de `main.py` y te
-pide confirmación. Salir del menú es con la opción `0`.
+El menú **no importa la lógica del bot**: cada opción lanza el comando
+documentado como SUBPROCESO, así que lo que se ejecuta es exactamente lo que
+escribirías a mano (y el menú no puede desviarse del bot). Usa el intérprete del
+`.venv`, muestra `config.VERSION` y guarda cada ejecución en
+`logs/menu_AAAAmmdd_HHMMSS.log` (salida completa, secretos redactados, rotación
+de 30). Antes de cada acción que gasta dinero te enseña el **comando exacto** y
+pide confirmación (Enter = no). Al terminar, te dice **qué ficheros ha generado
+o actualizado** y cuánto han crecido. Salir es la opción `0`.
 
-> Consejo: si el chequeo de arranque te parece lento en tu máquina
-> (arranca RapidOCR y Chromium), usa `python lanzador.py --sin-chequeo`
-> y la opción 9 cuando quieras el diagnóstico completo.
+### Opciones
 
-Los comandos de `main.py` (ver "Uso" en el docstring de main.py y la
-sección de abajo) siguen funcionando exactamente igual: el lanzador
-llama internamente a las mismas funciones, no reemplaza nada.
+| Opción | Comando equivalente | ¿Gasta? |
+|--------|--------------------|---------|
+| 1. git pull | `git pull --ff-only` (solo con el árbol limpio) | no |
+| 2. pytest | `python -m pytest tests -q` | no |
+| 3. --diagnostico | `main.py --diagnostico [--test-llm]` | solo con `--test-llm` |
+| 4. --fase 2 | `main.py --fase 2 --presupuesto-max N [--max-steps M]` | sí |
+| 5. --aceptar | `main.py --aceptar` | no |
+| 6. --frontera | `main.py --frontera` | no |
+| 7. resumen_noche.py | `resumen_noche.py` | no |
+| 8. --probar-ocr | `main.py --probar-ocr PDF [--manuscrito] [--sin-cache]` | no (OCR local) |
+| 9. estado de dependencias | qué paquetes le faltan al intérprete elegido | no |
+| 10. instalar fonttools | `pip install fonttools` + comprobación | no |
+| 11. ver último log | rabo del log más reciente de `logs/` | no |
+| 12. --ciclo N (autopiloto) | `main.py --ciclo N --presupuesto-max N` | sí |
+| 13. --fase 1 (solo búsqueda) | `main.py --fase 1 --presupuesto-max N [--max-steps M]` | sí |
+| 14. --personas "A,B" | `main.py --personas "A,B" --presupuesto-max N` | sí |
+| 15. chuleta | imprime los comandos avanzados (NO ejecuta nada) | no |
 
-## Menú interactivo — lanzador.py (v9.0, PARTE B)
+### Comandos avanzados (fuera del menú, a propósito)
 
-Qué hace cada opción (el flag de `main.py` equivalente entre paréntesis):
+La **opción 15** los imprime con su aviso de si gastan o no. También están aquí
+para copiar y pegar:
 
-| Opción | Flag equivalente | Gasta tokens |
-|--------|------------------|--------------|
-| 1. Investigación completa (fase 1 + 2) | (default / `--fase all`) | sí |
-| 2. Solo fase 1 (búsqueda) | `--fase 1` | sí |
-| 3. Solo fase 2 (refinado + GEDCOM) | `--fase 2` | sí |
-| 4. Ver frontera priorizada | `--frontera` | no |
-| 5. Autopiloto: N ciclos completos | `--ciclo N` | sí |
-| 6. Filtrar por personas concretas | `--personas "A,B"` | sí |
-| 7. Generar solicitudes de partidas | `--solicitudes` | no |
-| 8. Hipótesis Catastro de Ensenada | `--ensenada` | algunos |
-| 9. Diagnóstico completo | `--diagnostico` | solo con ping |
-| 10. Probar conectores en vivo | `--probar-conectores` | no (solo red) |
-| 11. Importar fotos propias | `--importar-propios` | no (OCR local, gratis) |
-| 12. Aceptar verificados (commit) | `--aceptar` | no |
-| 13. Reclasificar hallazgos existentes | `--reclasificar` | no (0 tokens, 0 red) |
+```
+python main.py --solicitudes           # peticiones de partidas por escrito (no gasta)
+python main.py --importar-propios      # fotos de documentos_propios/ -> OCR local (no gasta)
+python main.py --reclasificar          # reclasifica el árbol guardado (0 tokens, 0 red)
+python main.py --ensenada              # hipótesis del Catastro de 1752 (gasta algo)
+python main.py --probar-conectores     # SIGA/ADDO/PARES en vivo (no gasta tokens)
+python main.py --fase 2 --sin-cache    # re-extrae los hallazgos (recupera caché; GASTA)
+```
 
-Detalles de uso:
+> `lanzador.ps1` y `Menu.bat` (Windows) solo sirven para el doble clic: localizan
+> el intérprete, fuerzan UTF-8 y abren este menú. El antiguo `lanzador.py` (menú
+> en proceso) se retiró en la v10.4.2: llamaba a las fases sin pasar por la
+> validación de claves ni por la consulta de precios vivos, y duplicaba lógica.
 
-- **Valores por defecto**: Enter acepta el valor entre corchetes
-  (`¿Cuántos ciclos? [3]:`, `¿Presupuesto máximo en $ ... [2.0]`).
-- **Presupuesto**: se pregunta antes de cada acción que gasta; con `sin`
-  no hay tope (comportamiento por defecto de `main.py`). El gasto de la
-  cabecera es el de la SESIÓN del menú (todas las acciones comparten
-  proceso, así que va acumulando; el control de gasto contabiliza en
-  dólares, como siempre).
-- **Opción 6**: lee `familia_conocida.json`, lista las personas numeradas
-  y puedes elegir `1,3,5` (o rangos `2-4`) en vez de escribir los nombres.
-- **Después de cada acción** vuelves al menú y se muestra un resumen de
-  qué ficheros se han generado/actualizado y cuánto han crecido (p. ej.
-  `arbol_hallazgos.json (hallazgos: 3 -> 15, +12)`).
-- **Ctrl+C** en cualquier punto: "Cancelado. Volviendo al menú." — sin
-  traceback. El progreso ya está guardado por las paradas seguras de
-  las propias fases.
-- `lanzador.ps1` (Windows) no contiene lógica: localiza Python, fuerza
-  UTF-8 en la consola y llama a `lanzador.py` para poder hacer doble clic.
 
 ## OCR local con llama.cpp + Vulkan — multi-modelo (v9.0 PARTE A, v10.1)
 
@@ -304,7 +298,7 @@ Un valor inválido de `OCR_LLAMACPP_FAMILIA` no rompe nada: error en el
 log y fallback conservador a `olmocr2` (el comportamiento exacto de la
 v10.0).
 
-Comprueba que el agente lo ve (el chequeo de arranque del lanzador y el
+Comprueba que el agente lo ve (la cabecera del menú y el
 punto 7f de `main.py --diagnostico` muestran la familia configurada y el
 modelo que el servidor dice servir, o el aviso con instrucciones si no
 está). Si el modelo reportado no parece corresponder a la familia
@@ -428,7 +422,7 @@ prevalece sobre lo que diga el LLM):
 - `agent/evidencia.py` incluye `reclasificar_arbol()`: reclasifica un
   `arbol_refinado.json` ya existente sin re-ejecutar la fase 2. Desde la
   v9.2 es un comando real: `python main.py --reclasificar` (gratis, ver
-  la sección v9.2) y opción 13 del lanzador.
+  la sección v9.2) y la chuleta del menú (opción 15).
 
 ### PARTE A — FamilySearch (catálogo por localidad)
 
@@ -494,7 +488,7 @@ Dos cambios (ver `INFORME_REVISION_V92.md` para el detalle honesto):
 estaba conectada a ningún comando. Ahora:
 
 ```bash
-python3 main.py --reclasificar     # o opción 13 del lanzador
+python3 main.py --reclasificar     # gratis (la opción 15 del menú lo recuerda)
 ```
 
 - Carga `arbol_refinado.json` + `arbol_hallazgos.json` +
@@ -507,8 +501,8 @@ python3 main.py --reclasificar     # o opción 13 del lanzador
   backup `arbol_refinado.json.bak` del anterior, por si acaso.
 - Imprime el resumen: cuántos hallazgos quedan como confirmados /
   candidatos fuertes / coincidencias débiles.
-- En el lanzador es la opción 13: "Reclasificar hallazgos existentes
-  [gratis, no gasta tokens]".
+- Es un comando avanzado: el menú lo recuerda en su chuleta (opción 15),
+  no como opción propia (es de uso esporádico).
 
 ### PARTE 2 — FASE 2 con DeepSeek V4.1 Flash (vía OpenRouter)
 
@@ -688,8 +682,8 @@ por la mitad y el log mostraba `http://localhost:8080/v1/chat/c`
 - `python resumen_noche.py` decía "can't open file": el script NO
   existía. Ahora existe y es 100% offline (0 tokens, 0 red): corpus por
   origen, hallazgos por nivel de evidencia, árbol, frontera, cachés y
-  siguiente paso recomendado. También es la opción **14** del menú del
-  lanzador.
+  siguiente paso recomendado. También es la opción **7** del menú de
+  tareas.
 
 ## Correcciones de la v4.3 (verificadas en vivo el 2026-09-10)
 
@@ -773,8 +767,9 @@ marcar nada como investigado (el progreso ya está guardado).
 
 ```
 genealogia_v4/
-├── lanzador.py         # v9.0: MENÚ INTERACTIVO (el punto de entrada diario)
-├── lanzador.ps1        # v9.0: wrapper de Windows para doble clic
+├── menu_principal.py   # v10.4.2: MENÚ DE TAREAS (subprocesos; entrada diaria)
+├── Menu.bat            # v10.4.2: doble clic en Windows
+├── lanzador.ps1        # wrapper de Windows (doble clic); abre el menú nuevo
 ├── main.py             # CLI (argparse) + bucle de ciclos autopiloto (modo avanzado)
 ├── config.py           # Constantes, prompts, schemas, DOMINIOS_IGNORADOS, SQLite
 ├── utils/
@@ -794,8 +789,9 @@ genealogia_v4/
 │   ├── frontera.py      # Cola priorizada + commit con dedupe + backups con fecha
 │   └── gedcom.py        # GEDCOM 5.5.1 + solicitudes + Ensenada + OCR local
 │                        #   de documentos propios (v10) + diagnóstico
-└── tests/               # 232 pruebas automáticas (pytest)
-    ├── conftest.py      # entorno de pruebas (claves y módulos de mentira)
+└── tests/               # 463 pruebas automáticas (pytest)
+    ├── conftest.py      # entorno de pruebas (una clave de mentira y módulos)
+    ├── harness_aislado.py   # v10.4.2: lanza el bot en un BASE_DIR temporal
     ├── test_personas.py     # ids estables, tocayos, matching difuso
     ├── test_plausibilidad.py# punto 2: solo contradicciones reales marcan
     ├── test_auditoria.py    # punto 5: cita contra el TEXTO ORIGINAL
@@ -812,8 +808,8 @@ genealogia_v4/
     ├── test_llamacpp_multi_v101.py  # v10.1: prompts/reescalado/YAML/caché por
     │                            #  familia, fallback de familia inválida,
     │                            # aviso de modelo no coincidente
-    ├── test_lanzador_v90.py    # v9.0: helpers del menú + humo del proceso
-    │                            (arranque y salida limpios)
+    ├── test_menu_principal_v105.py  # menú de tareas: cada opción, sus
+    │                            # confirmaciones y sus comandos exactos
     ├── test_probar_ocr_v90.py  # v9.0/v10.0: --probar-ocr (PDF único, $0,
     │                            cascada local, caché)
     ├── test_ocr_local_v10.py    # v10.0: OCR 100% local (0 llamadas nube,
@@ -839,9 +835,9 @@ cp .env.example .env      # pega tus claves de Tavily y OpenRouter
 #      olmOCR-2): NO es un pip, se compila aparte y el modelo se descarga
 #      solo con -hf — ver la sección "OCR local con llama.cpp + Vulkan".
 
-python3 lanzador.py           # v9.0: el menú (chequeo rápido incluido)
+python3 menu_principal.py     # v10.4.2: el menú de tareas
 python3 main.py --diagnostico # comprueba todo antes de gastar tokens
-python -m pytest tests/ -q    # las 232 pruebas de garantía
+python -m pytest tests/ -q    # las 463 pruebas de garantía
 ```
 
 Las dependencias opcionales **no rompen el agente si no están**: si
@@ -1181,8 +1177,8 @@ para que la suite corra sin red en cualquier máquina.
 
 ## Uso (modo avanzado)
 
-Lo cotidiano va con `lanzador.py` (ver "Inicio rápido"); estos comandos
-son el modo avanzado — cada uno tiene su equivalente numerado en el menú:
+Lo cotidiano va con `menu_principal.py` / `Menu.bat` (ver "Inicio rápido");
+estos comandos son el modo avanzado:
 
 ```bash
 # Diagnóstico rápido (no gasta tokens salvo con --test-llm)

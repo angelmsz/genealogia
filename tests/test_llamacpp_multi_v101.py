@@ -624,33 +624,14 @@ def test_probar_ocr_cabecera_familia_prompt_y_modelo(monkeypatch, tmp_path,
     assert "OCR 100% local" in salida
 
 
-def test_lanzador_linea_llama_muestra_familia(monkeypatch):
-    """lanzador._linea_llama(): el estado del servidor va acompañado de la
-    familia activa (v10.1), con servidor vivo y con servidor caído."""
-    import config
-    import lanzador
-
-    monkeypatch.setattr(config, "OCR_BACKEND", "llamacpp")
-    monkeypatch.setattr(config, "OCR_LLAMACPP_FAMILIA", "glm-ocr")
-
-    def _get(url, timeout=None, **kwargs):
-        if url.endswith("/health"):
-            return _Respuesta(200, {"status": "ok"})
-        return _Respuesta(200, {"data": [{"id": "GLM-OCR.gguf"}]})
-
-    monkeypatch.setattr(requests, "get", _get)
-    linea = lanzador._linea_llama()
-    assert "llama-server ✓" in linea
-    assert "GLM-OCR.gguf" in linea
-    assert "familia glm-ocr" in linea
-
-    monkeypatch.setattr(
-        requests, "get",
-        lambda url, timeout=None, **k: (_ for _ in ()).throw(
-            requests.exceptions.ConnectionError("refused")))
-    linea_caida = lanzador._linea_llama()
-    assert "llama-server ✗" in linea_caida
-    assert "familia glm-ocr" in linea_caida
+                           # NOTA (v10.4.2): aquí vivía
+                           # test_lanzador_linea_llama_muestra_familia, que
+                           # comprobaba la línea "llama-server ✓ ... familia
+                           # glm-ocr" de la cabecera del menú ANTIGUO
+                           # (lanzador.py, retirado). El menú nuevo no pinta esa
+                           # línea, así que el test se va con su sujeto; la
+                           # familia activa sigue comprobada arriba (cabecera de
+                           # --probar-ocr) y en el diagnóstico de GEDCOM (abajo).
 
 
 def test_gedcom_diagnostico_muestra_familia():

@@ -25,18 +25,19 @@ CÓMO FUNCIONA (y por qué así)
     salida no reviente en consolas cp1252 al ir por tubería. Esto ESQUIVA ese
     problema en el menú; no lo arregla (sigue abierto para ejecuciones
     directas), y aquí queda dicho para no vender humo.
-  - v10.4.2 — cubre también la parte del menú antiguo (lanzador.py) que de
-    verdad se usaba: --ciclo N (autopiloto), --fase 1 sola, --personas "A,B",
-    --max-steps y --presupuesto-max libres, y el --test-llm del diagnóstico.
-    Los comandos avanzados que NO están en el menú (opción 15) se imprimen en
-    una chuleta, para copiar y pegar, sin ejecutar nada.
+  - v10.4.2 — cubre también la parte del menú antiguo (`lanzador.py`, retirado
+    en esta versión) que de verdad se usaba: --ciclo N (autopiloto), --fase 1
+    sola, --personas "A,B", --max-steps y --presupuesto-max libres, y el
+    --test-llm del diagnóstico. Los comandos avanzados que NO están en el menú
+    (opción 15) se imprimen en una chuleta, para copiar y pegar, sin ejecutar
+    nada.
   - v10.4.2 — al terminar una acción que escribe estado, el menú dice QUÉ
     ficheros ha generado o actualizado (tamaño + recuento cuando se puede
     contar): antes había que abrir el explorador para saber si la noche había
     dejado algo nuevo.
 
 LO QUE NO HACE (a propósito)
-  - No toca lanzador.py (el menú antiguo, en proceso) ni la lógica del bot.
+  - No toca la lógica del bot: la lanza tal cual, en subprocesos.
   - No crea ejecutables .exe.
   - No lanza merges automáticos: `git pull --ff-only` y solo con el árbol
     limpio.
@@ -547,9 +548,9 @@ def _ejecutar_con_resumen(argv: list[str], *, opcion: str, descripcion: str,
                           sin_log: bool = False) -> int:
     """Lanza el comando y, al terminar, dice QUÉ ha generado o actualizado.
 
-    Es lo que el menú antiguo (lanzador.py) hacía tras cada acción y que se
-    perdió al pasar a subprocesos: saber si la noche ha dejado algo nuevo en el
-    disco sin abrir el explorador de ficheros.
+    Es lo que hacía el menú antiguo ya retirado tras cada acción, y que se
+    había perdido al pasar a subprocesos: saber si la noche ha dejado algo nuevo
+    en el disco sin abrir el explorador de ficheros.
     """
     antes = instantanea_salidas()
     codigo = _correr(argv, opcion=opcion, descripcion=descripcion,

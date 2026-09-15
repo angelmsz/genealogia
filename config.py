@@ -49,7 +49,7 @@ load_dotenv(dotenv_path=BASE_DIR / ".env")
 # SystemExit si faltaba .env: "no tengo claves" se convertía en "no puedo ni
 # arrancar", incluso para los modos que no usan ninguna (--probar-ocr,
 # --frontera, --reclasificar, --aceptar, --solicitudes, --importar-propios...),
-# y obligaba a los tests y a lanzador.py a inventarse claves falsas solo para
+# y obligaba a los tests a inventarse claves falsas solo para
 # poder importar. Ahora las claves se leen igual (del .env o del entorno),
 # pero la EXIGENCIA vive en un único punto: exigir_claves(), que main.py
 # llama justo antes de empezar un flujo que de verdad las necesita. El error
@@ -71,7 +71,7 @@ class ClavesAusentes(RuntimeError):
 
     Lo normal es que el flujo muera ANTES, en el punto de validación de
     main.py. Esto salta solo si alguien usa un cliente de API sin pasar por
-    ahí (p. ej. lanzador.py llamando a fase1/fase2 en su propio proceso).
+    ahí (p. ej. un script propio que llame a fase1/fase2 en su proceso).
     """
 
 
@@ -323,7 +323,7 @@ else:
 # ============================== ARCHIVOS ====================================
 
 # v10.4 — versión del proyecto (la escriben la cabecera del registro de
-# ejecución y los informes; los carteles de main/lanzador son texto aparte).
+# ejecución y los informes; el cartel de main es texto aparte).
 VERSION = "10.4.1"
 
 # v10.4 (P0) — observabilidad: registro de ejecución ("caja negra").

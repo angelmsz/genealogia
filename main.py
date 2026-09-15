@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 main.py — Punto de entrada del agente de investigación genealógica v10.2
-(modo AVANZADO: para el uso diario, ejecuta lanzador.py, que ofrece un
-menú interactivo con todas estas opciones sin escribir comandos).
+(modo AVANZADO: para el uso diario, ejecuta menu_principal.py —o Menu.bat en
+Windows—, que ofrece un menú de tareas sin escribir comandos).
 
 Estructura del proyecto (FASE 3 del refactor):
 
@@ -17,7 +17,8 @@ Estructura del proyecto (FASE 3 del refactor):
     agent/frontera.py    : frontera priorizada + commit de verificaciones
     agent/gedcom.py      : GEDCOM, solicitudes, Ensenada, OCR local, diag.
 
-Uso (modo avanzado; el día a día va con lanzador.py, ver README):
+Uso (modo avanzado; el día a día va con menu_principal.py / Menu.bat, ver
+README):
   python main.py                         # fase 1 + fase 2
   python main.py --fase 1                # solo búsqueda
   python main.py --fase 2                # solo refinado + GEDCOM

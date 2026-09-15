@@ -238,7 +238,7 @@ def _seccion_siguiente(hay_corpus: bool, hay_hallazgos: bool,
     ui.cabecera("6. Siguiente paso recomendado")
     if not hay_corpus:
         ui.log("Aún no hay corpus: arranca el agente con 'python main.py' "
-               "(o lanzador.py) para la primera pasada de búsqueda.")
+               "(o el menú, opción 13) para la primera pasada de búsqueda.")
         return
     if hay_hallazgos:
         ui.log("python main.py --reclasificar   (gratis: reordena lo "
