@@ -60,6 +60,43 @@ def test_escribir_con_backup_sin_fichero_previo(tmp_path):
     assert ruta.read_text(encoding="utf-8") == "[]"
 
 
+def test_r07_rota_los_tres_ultimos_backups(tmp_path):
+    """R-07: no se pisa el `.bak` en ráfagas; se conservan los TRES últimos.
+
+    Con un solo `.bak`, cuatro escrituras seguidas dejaban como copia el
+    resultado intermedio en vez del estado anterior a la ráfaga.
+    """
+    ruta = tmp_path / "estado.json"
+    ruta.write_text("v0", encoding="utf-8")
+    for version in ("v1", "v2", "v3", "v4"):
+        config.escribir_con_backup(ruta, version)
+
+    assert ruta.read_text(encoding="utf-8") == "v4"
+    assert (tmp_path / "estado.json.bak").read_text(encoding="utf-8") == "v3"
+    assert (tmp_path / "estado.json.bak.2").read_text(encoding="utf-8") == "v2"
+    assert (tmp_path / "estado.json.bak.3").read_text(encoding="utf-8") == "v1"
+    # Ni más ranuras ni restos: la v0 ya se descartó.
+    assert not (tmp_path / "estado.json.bak.4").exists()
+
+
+def test_r07_copiar_con_backup_tambien_rota(tmp_path):
+    ruta = tmp_path / "cache.db"
+    for contenido in (b"a", b"b", b"c"):
+        ruta.write_bytes(contenido)
+        config.copiar_con_backup(ruta)
+    assert (tmp_path / "cache.db.bak").read_bytes() == b"c"
+    assert (tmp_path / "cache.db.bak.2").read_bytes() == b"b"
+    assert (tmp_path / "cache.db.bak.3").read_bytes() == b"a"
+
+
+def test_r07_los_backups_estan_ignorados_por_git():
+    """El `.bak` (y sus rotaciones) son datos familiares: NUNCA al repo."""
+    reglas = (Path(__file__).resolve().parent.parent / ".gitignore").read_text(
+        encoding="utf-8")
+    assert "*.bak" in reglas
+    assert "*.bak.*" in reglas
+
+
 def test_tenia_contenido(tmp_path):
     assert config.tenia_contenido([1]) is True
     assert config.tenia_contenido([]) is False

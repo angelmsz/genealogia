@@ -63,10 +63,14 @@ VIGILADOS = (
     "corpus_bruto.json",
     "informe_fase1.json",
     "cache_agente.db",
-    # Backups que introduce la protección v10.4.2: tampoco deben aparecer.
+    # Backups que introduce la protección v10.4.2 (y su rotación R-07):
+    # tampoco deben aparecer.
     "arbol_hallazgos.json.bak",
+    "arbol_hallazgos.json.bak.2",
     "arbol_refinado.json.bak",
+    "arbol_refinado.json.bak.2",
     "arbol.ged.bak",
+    "arbol.ged.bak.2",
 )
 
 _PLANTILLA_DRIVER = '''\

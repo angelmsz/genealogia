@@ -49,6 +49,14 @@ solicitudes.md
 candidatos_ensenada.json
 registro_confirmaciones.jsonl
 
+# --- Copias de seguridad de los ficheros de estado (v10.4.2, R-07) ---
+# Cualquier *.bak (y sus rotaciones .bak.2, .bak.3) es una copia de datos
+# familiares: NUNCA al repositorio. Antes solo estaba listado
+# `arbol_refinado.json.bak`, así que `arbol_hallazgos.json.bak`,
+# `arbol.ged.bak` o `cache_agente.db.bak` SÍ podían colarse en un `git add -A`.
+*.bak
+*.bak.*
+
 # --- Zips de entrega y dossier generado ---
 *.zip
 DOSSIER_PARA_QWEN.txt

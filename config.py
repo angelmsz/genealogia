@@ -383,18 +383,55 @@ SALIDA_SOLICITUDES_MD = "solicitudes.md"
 # seguridad que faltaba, y las usan los tres ficheros de estado irremplazables
 # (arbol_hallazgos.json, arbol_refinado.json y arbol.ged).
 
+# Cuántas copias `.bak` se conservan por fichero (R-07): la 1 es la más
+# reciente y la 3 la más antigua.
+BACKUPS_A_CONSERVAR = 3
+
+
+def _ruta_backup(ruta: Path, indice: int = 1) -> Path:
+    """Ruta del backup número `indice` de `ruta` (1 = el más reciente).
+
+    Se numeran `.bak`, `.bak.2`, `.bak.3`... (y no con marca de tiempo) para que
+    la ruta sea predecible y fácil de encontrar a mano.
+    """
+    sufijo = ".bak" if indice == 1 else f".bak.{indice}"
+    return ruta.with_suffix(ruta.suffix + sufijo)
+
+
+def _rotar_backups(ruta: Path) -> None:
+    """Desplaza las copias antes de escribir una nueva (R-07).
+
+    `.bak` -> `.bak.2` -> `.bak.3` (la más antigua se descarta), de modo que la
+    ranura `.bak` queda libre para la copia del estado actual.
+
+    Con un solo `.bak`, dos escrituras seguidas —una ráfaga de fase 2— pisaban
+    la copia buena: lo que quedaba era el resultado intermedio, no el estado
+    anterior a la ráfaga. Con tres ranuras siempre sobrevive una copia de ANTES
+    del incidente, no solo de la última escritura.
+    """
+    for indice in range(BACKUPS_A_CONSERVAR - 1, 0, -1):
+        origen = _ruta_backup(ruta, indice)
+        if not origen.exists():
+            continue
+        try:
+            os.replace(origen, _ruta_backup(ruta, indice + 1))
+        except OSError:
+            pass
+
+
 def escribir_con_backup(ruta, contenido: str) -> str | None:
     """Escribe `contenido` en `ruta`, dejando la versión anterior en `.bak`.
 
-    Devuelve la ruta del backup, o None si no había nada que respaldar.
+    Devuelve la ruta del backup, o None si no había nada que respaldar. Los
+    backups se ROTAN: se conservan los tres últimos (R-07).
     """
     ruta = Path(ruta)
     respaldo: str | None = None
     if ruta.exists():
-        destino = ruta.with_suffix(ruta.suffix + ".bak")
+        _rotar_backups(ruta)
         try:
-            shutil.copy2(ruta, destino)
-            respaldo = str(destino)
+            shutil.copy2(ruta, _ruta_backup(ruta, 1))
+            respaldo = str(_ruta_backup(ruta, 1))
         except OSError:
             respaldo = None
     ruta.write_text(contenido, encoding="utf-8")
@@ -405,15 +442,15 @@ def copiar_con_backup(ruta) -> str | None:
     """Copia `ruta` tal cual (bytes) a `ruta.bak`. Devuelve el backup o None.
 
     Para ficheros que no se pueden reescribir como texto (la base de datos
-    SQLite: cache_agente.db). Igual que escribir_con_backup, deja rastro
-    ANTES de que algo los modifique.
+    SQLite: cache_agente.db). Igual que escribir_con_backup, deja rastro ANTES
+    de que algo los modifique, y también rota los tres últimos backups (R-07).
     """
     ruta = Path(ruta)
     if not ruta.exists():
         return None
-    destino = ruta.with_suffix(ruta.suffix + ".bak")
-    shutil.copy2(ruta, destino)
-    return str(destino)
+    _rotar_backups(ruta)
+    shutil.copy2(ruta, _ruta_backup(ruta, 1))
+    return str(_ruta_backup(ruta, 1))
 
 
 def tenia_contenido(datos) -> bool:
