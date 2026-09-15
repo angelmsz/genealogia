@@ -74,13 +74,77 @@ def test_rate_limiter_respeta_el_intervalo_configurado():
     assert FAMILYSEARCH_DELAY[1] <= 5.0
 
 
-def test_login_sin_credenciales_no_falla_en_silencio():
+# ============ TESTS DE LOGIN SIN DEPENDER DEL .ENV DE LA MÁQUINA ============
+# FALLO 1 y 2 del sobremesa: estos tests daban resultados DISTINTOS en el
+# portátil (sin .env) y en el sobremesa (con credenciales reales de
+# FamilySearch), porque el conector leía la cookie del entorno y hacía login de
+# verdad. Reglas a partir de aquí:
+#   1. la RED se bloquea: si un test intenta un login real, falla con un mensaje
+#      claro en vez de colarse por una sesión de verdad;
+#   2. el ENTORNO no decide el resultado: cuando el test quiere "sin
+#      credenciales", se borran también las del entorno.
+
+def _sin_red(monkeypatch):
+    """Bloquea CUALQUIER petición del conector de FamilySearch (get y post).
+
+    El post es el que enviaría usuario y contraseña: si un test llega ahí, es un
+    fallo del test, no una petición que queramos hacer.
+    """
+    def _prohibido(*args, **kwargs):
+        raise AssertionError(
+            "estos tests no pueden salir a la red (ni tener credenciales "
+            "reales del .env en juego)")
+
+    monkeypatch.setattr(familysearch.SESSION, "get", _prohibido)
+    monkeypatch.setattr(familysearch.SESSION, "post", _prohibido)
+
+
+def test_login_sin_credenciales_no_falla_en_silencio(monkeypatch):
     """Sin FAMILYSEARCH_USER/PASS el estado es EXPLÍCITO:
     'sin_credenciales' con instrucción (verificado en vivo: el catálogo
-    redirige a 'Sign-in to your account')."""
+    redirige a 'Sign-in to your account').
+
+    v10.4.2 (FALLO 1): determinista con y sin .env. Se borran las credenciales
+    del entorno y se bloquea la red, así que el resultado no depende de la
+    máquina donde corra la suite.
+    """
+    monkeypatch.delenv("FAMILYSEARCH_COOKIE", raising=False)
+    monkeypatch.delenv("FAMILYSEARCH_USER", raising=False)
+    monkeypatch.delenv("FAMILYSEARCH_PASS", raising=False)
+    _sin_red(monkeypatch)
+
     ses = SesionFamilySearch(user="", password="", cookie="")
+
     assert ses.iniciar() == "sin_credenciales"
     assert "FAMILYSEARCH" in ses.detalle
+
+
+def test_una_cookie_vacia_es_sin_cookie_aunque_el_entorno_tenga_una(monkeypatch):
+    """REGRESIÓN del FALLO 1: con FAMILYSEARCH_COOKIE en el entorno (como en el
+    sobremesa), un `cookie=""` sigue significando "sin cookie".
+
+    Antes, `cookie or os.getenv(...)` hacía que el "" cayera a la variable de
+    entorno: este test (y el de la contraseña) hacían login REAL en el sobremesa.
+    """
+    monkeypatch.setenv("FAMILYSEARCH_COOKIE", "fssessionid=COOKIE-DEL-ENTORNO")
+    _sin_red(monkeypatch)
+
+    ses = SesionFamilySearch(user="", password="", cookie="")
+
+    assert ses.cookie == ""
+    assert ses.iniciar() == "sin_credenciales"
+
+
+def test_sin_argumento_de_cookie_se_lee_del_entorno(monkeypatch):
+    """Y el camino de producción NO cambia: sin pasar cookie (None), el
+    conector la lee del .env."""
+    monkeypatch.setenv("FAMILYSEARCH_COOKIE", "fssessionid=COOKIE-DEL-ENTORNO")
+    _sin_red(monkeypatch)
+
+    ses = SesionFamilySearch(user="", password="")
+
+    assert ses.iniciar() == "login_ok"          # la cookie no necesita red
+    assert "FAMILYSEARCH_COOKIE" in ses.detalle
 
 
 def test_login_con_cookie_no_toca_la_red():

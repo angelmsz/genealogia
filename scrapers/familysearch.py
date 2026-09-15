@@ -152,8 +152,16 @@ class SesionFamilySearch:
         self.password = password
         # v9.2 — FAMILYSEARCH_COOKIE ya se lee DE VERDAD del .env (antes
         # solo estaba documentada; la cookie había que pasarla por código).
-        self.cookie = (cookie
-                       or os.getenv("FAMILYSEARCH_COOKIE", "")).strip()
+        # v10.4.2 (FALLO 1 del sobremesa) — `cookie=None` significa "no me han
+        # dado cookie" -> se lee del .env; `cookie=""` significa "SIN cookie,
+        # explícitamente". Antes era `cookie or os.getenv(...)` y un "" caía al
+        # .env: un test que pedía "sin credenciales" hacía login REAL en la
+        # máquina que tiene FAMILYSEARCH_COOKIE (el sobremesa) y no en la que no
+        # (el portátil). El mismo test, dos resultados.
+        if cookie is None:
+            self.cookie = os.getenv("FAMILYSEARCH_COOKIE", "").strip()
+        else:
+            self.cookie = str(cookie).strip()
         self.limitador = limitador or RateLimiter()
         self.estado = "sin_credenciales"
         self.detalle = ""
