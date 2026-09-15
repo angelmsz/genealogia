@@ -124,11 +124,20 @@ class Perezoso:
     exige una clave en el constructor). Con esto, `from utils import llm` o
     `import scrapers.web` funcionan siempre, y el cliente se crea —y valida
     su clave— cuando de verdad se va a usar.
+
+    v10.4.2 (R-04) — `bool(proxy)`: sin `__bool__`, un objeto así evalúa
+    SIEMPRE True (Python no mira dentro), de modo que una comprobación
+    defensiva como ``if not tavily: usar_otro_camino()`` no se activaría nunca
+    y el fallo aparecería más tarde y más lejos. Con `disponible` (una función
+    que dice si la configuración está lista, p. ej. "¿hay clave?"), el proxy
+    responde lo que de verdad se puede hacer.
     """
 
-    def __init__(self, fabricar, etiqueta: str = "cliente"):
+    def __init__(self, fabricar, etiqueta: str = "cliente",
+                 disponible=None):
         object.__setattr__(self, "_fabricar", fabricar)
         object.__setattr__(self, "_etiqueta", etiqueta)
+        object.__setattr__(self, "_disponible", disponible)
         object.__setattr__(self, "_real", None)
         object.__setattr__(self, "_lock", threading.Lock())
 
@@ -142,13 +151,30 @@ class Perezoso:
                     object.__setattr__(self, "_real", real)
         return real
 
+    def __bool__(self) -> bool:
+        """False si este cliente NO se puede usar (p. ej. falta su clave).
+
+        Solo responde con conocimiento cuando se le pasó `disponible`; sin ella
+        devuelve True (no se pidió comprobación, y construir el cliente aquí
+        sería un efecto colateral escondido en un `if`).
+        """
+        disponible = object.__getattribute__(self, "_disponible")
+        if disponible is None:
+            return True
+        try:
+            return bool(disponible())
+        except Exception:
+            return False
+
     def __getattr__(self, nombre):
         return getattr(self._objeto(), nombre)
 
     def __repr__(self) -> str:
         creado = object.__getattribute__(self, "_real") is not None
+        util = "disponible" if bool(self) else "SIN configurar"
         return (f"<{object.__getattribute__(self, '_etiqueta')} "
-                f"{'creado' if creado else 'aún sin crear (perezoso)'}>")
+                f"{'creado' if creado else 'aún sin crear (perezoso)'} · "
+                f"{util}>")
 
 # Modelo LLM de filtrado/agentes (barato, rápido) y de extracción (caro,
 # preciso). v10.0: ya NO hay modelo de visión — el OCR y la transcripción

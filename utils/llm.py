@@ -294,7 +294,8 @@ def _crear_cliente_llm():
     )
 
 
-llm = Perezoso(_crear_cliente_llm, "cliente OpenRouter")
+llm = Perezoso(_crear_cliente_llm, "cliente OpenRouter",
+               disponible=lambda: bool(OPENROUTER_API_KEY))
 
 
 # Modelos que rechazaron response_format json_schema (fallback a prompt).

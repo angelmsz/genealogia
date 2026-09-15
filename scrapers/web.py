@@ -90,7 +90,8 @@ def _crear_cliente_tavily():
     return TavilyClient(api_key=TAVILY_API_KEY)
 
 
-tavily = Perezoso(_crear_cliente_tavily, "cliente Tavily")
+tavily = Perezoso(_crear_cliente_tavily, "cliente Tavily",
+                  disponible=lambda: bool(TAVILY_API_KEY))
 
 
 # ============================== TAVILY ======================================

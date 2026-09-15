@@ -121,6 +121,44 @@ def test_validar_credenciales_api_no_hace_nada_si_estan(monkeypatch):
     assert config.validar_credenciales_api() is None
 
 
+# ==================== 2b. R-04: bool(proxy de cliente) =====================
+
+def test_perezoso_sin_disponible_evalua_true():
+    """El proxy responde True cuando no se le pidió comprobación."""
+    assert bool(config.Perezoso(lambda: object(), "x")) is True
+
+
+def test_perezoso_con_disponible_refleja_la_configuracion():
+    """R-04: con `disponible`, bool() dice si el cliente se puede usar (antes
+    era siempre True y una comprobación defensiva no se activaba nunca)."""
+    sin_clave = config.Perezoso(lambda: object(), "x",
+                                disponible=lambda: False)
+    con_clave = config.Perezoso(lambda: object(), "x",
+                                disponible=lambda: True)
+    assert bool(sin_clave) is False
+    assert bool(con_clave) is True
+    # Si la comprobación se rompe, no mentimos: False.
+    assert bool(config.Perezoso(lambda: object(), "x",
+                                disponible=lambda: 1 / 0)) is False
+
+
+def test_los_clientes_reales_dicen_si_estan_configurados(tmp_path):
+    """Los dos clientes del bot llevan su comprobación: sin claves se evalúan
+    como False y con ellas como True (en un entorno aislado)."""
+    extra = ("import utils.llm as _ull, scrapers.web as _web\n"
+             "print('LLM_UTIL:', bool(_ull.llm))\n"
+             "print('TAVILY_UTIL:', bool(_web.tavily))")
+    sin_claves = lanzar(["--help"], tmp_path, claves=(None, None), pre=PRE_SIN_ENV,
+                        extra=extra)
+    assert "LLM_UTIL: False" in sin_claves.stdout
+    assert "TAVILY_UTIL: False" in sin_claves.stdout
+
+    con_claves = lanzar(["--help"], tmp_path, claves=CLAVES_FALSAS,
+                        pre=PRE_SIN_ENV, extra=extra)
+    assert "LLM_UTIL: True" in con_claves.stdout
+    assert "TAVILY_UTIL: True" in con_claves.stdout
+
+
 # ============ 3. LOS MODOS GRATIS FUNCIONAN SIN .ENV (aislado) ==============
 
 def test_frontera_sin_claves(tmp_path):
