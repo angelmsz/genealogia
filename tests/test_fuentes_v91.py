@@ -199,26 +199,51 @@ def test_resumen_del_informe_con_estado_chf_exacto():
         "pendiente — requiere Centro de Historia Familiar")
 
 
-def test_recolector_familysearch_sin_credenciales_registra_y_no_cachea_error():
+def test_recolector_familysearch_sin_credenciales_registra_y_no_cachea_error(
+        monkeypatch):
     """El recolector devuelve [] (meta-información al informe, no corpus)
-    y marca la consulta como REGISTRADA (no cooldown: no es un error)."""
-    marcadas, falladas = [], []
-    conn = type("C", (), {})()   # conn None-equivalente: usamos monkeypatch
+    y marca la consulta como REGISTRADA (no cooldown: no es un error).
 
-    class Conn:
-        pass
-
-    # monkeypatch de las funciones de caché de config
+    FALLO 5 (encontrado al arreglar el 1 y el 2; mismo defecto de fondo): este
+    test llamaba al recolector sin tocar la sesión, así que con el .env del
+    sobremesa (cookie real) el catálogo SALÍA A INTERNET de verdad: la suite
+    avisaba de una petición HTTPS a familysearch.org. Dependía de la red (y de
+    las credenciales de esa máquina): si el sitio no responde, el estado acaba
+    en 'catalogo_inalcanzable' y el test se pone rojo. Ahora la sesión se
+    sustituye por una que se declara SIN credenciales y la red queda bloqueada.
+    """
     import scrapers.familysearch as fs
-    fs._consulta_conector_hecha = lambda c, k: False
-    fs._conector_en_cooldown = lambda c, k: False
-    fs._marcar_conector = lambda c, k: marcadas.append(k)
-    fs._marcar_conector_fallo = lambda c, k: falladas.append(k)
+    monkeypatch.delenv("FAMILYSEARCH_COOKIE", raising=False)
+    monkeypatch.delenv("FAMILYSEARCH_USER", raising=False)
+    monkeypatch.delenv("FAMILYSEARCH_PASS", raising=False)
+    _sin_red(monkeypatch)
+    marcadas, falladas = [], []
+    # monkeypatch (no asignación suelta): así no se filtra a los demás tests.
+    monkeypatch.setattr(fs, "_consulta_conector_hecha", lambda c, k: False)
+    monkeypatch.setattr(fs, "_conector_en_cooldown", lambda c, k: False)
+    monkeypatch.setattr(fs, "_marcar_conector", lambda c, k: marcadas.append(k))
+    monkeypatch.setattr(fs, "_marcar_conector_fallo",
+                        lambda c, k: falladas.append(k))
+
+    class _SesionSinCredenciales:
+        """Sesión de mentira que se declara SIN credenciales (no toca la red)."""
+
+        estado = "sin_credenciales"
+        detalle = ("falta FAMILYSEARCH_USER/FAMILYSEARCH_PASS "
+                   "(o FAMILYSEARCH_COOKIE) en el .env")
+
+        def iniciar(self) -> str:
+            return self.estado
+
+    monkeypatch.setattr(fs, "SesionFamilySearch", _SesionSinCredenciales)
+
     docs = recolector_familysearch(
         {"municipio": "Vitoria", "provincia": "alava"}, conn=None)
+
     assert docs == []
     assert marcadas and not falladas
     assert "Vitoria" in familysearch.RESULTADOS["vitoria"]["localidad"]
+    assert familysearch.RESULTADOS["vitoria"]["estado"] == "sin_credenciales"
 
 
 def test_cache_de_familysearch_no_lleva_credenciales():
