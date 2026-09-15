@@ -244,24 +244,49 @@ def test_url_catalogo_por_localidad_no_por_nombre():
 
 
 def test_la_contrasena_nunca_se_loguea(monkeypatch):
-    """REQUISITO CRÍTICO de la PARTE A: ni en logs ni en errores."""
+    """REQUISITO CRÍTICO de la PARTE A: ni en logs ni en errores.
+
+    FALLO 2 del sobremesa: con credenciales reales en el .env, este test hacía
+    un login DE VERDAD. El `.env` del sobremesa trae FAMILYSEARCH_COOKIE y el
+    `cookie=""` del test caía a esa variable de entorno (arreglado en el commit
+    anterior), así que el estado era "login_ok" y la aserción fallaba; y de paso
+    el proceso cargaba la cookie real del usuario en la sesión.
+
+    A partir de aquí el test es determinista: sin credenciales en el entorno, la
+    red bloqueada en get Y en post (el post es el que enviaría usuario y
+    contraseña), y sin esperas reales del RateLimiter.
+    """
     import utils.ui as ui
     import scrapers.familysearch as fs
+    monkeypatch.delenv("FAMILYSEARCH_COOKIE", raising=False)
+    monkeypatch.delenv("FAMILYSEARCH_USER", raising=False)
+    monkeypatch.delenv("FAMILYSEARCH_PASS", raising=False)
     mensajes: list[str] = []
     monkeypatch.setattr(ui, "log", lambda m: mensajes.append(str(m)))
+    enviados = {"post": 0}
+
     # sin red: el login fallará por conexión y pasa por el mismo código
     # que podría filtrar el secreto en un mensaje de error
     def _get(*a, **kw):
         raise ConnectionError("red caída (test)")
+
+    def _post(*a, **kw):
+        enviados["post"] += 1
+        raise AssertionError("¡el test ha intentado enviar las credenciales!")
+
     monkeypatch.setattr(fs.SESSION, "get", _get)
+    monkeypatch.setattr(fs.SESSION, "post", _post)
+    # RateLimiter sin esperas: el de verdad duerme 3-5 s entre peticiones.
     ses = SesionFamilySearch(user="usuario@correo.com",
-                             password="SECRETO-1234", cookie="")
+                             password="SECRETO-1234", cookie="",
+                             limitador=RateLimiter(rango=(0.0, 0.0)))
     ses.iniciar()   # login_manual_requerido por red caída
     joined = "\n".join(mensajes)
     assert "SECRETO-1234" not in joined
     assert "usuario@correo.com" not in joined  # solo enmascarado
     assert ses.estado in ("login_manual_requerido",)
     assert "SECRETO" not in ses.detalle
+    assert enviados["post"] == 0        # la contraseña nunca llegó a salir
 
 
 # ======================= PARTE D — HISPAGEN =================================
