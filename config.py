@@ -1096,6 +1096,27 @@ LINAJE_MIN_ANIO = 1550             # por debajo de esto el índice casi no dice
 LINAJE_VENTANA = "linaje_alava.json"      # estado reanudable
 LINAJE_INFORME = "linaje_alava.md"        # informe para leer
 
+# ===== v10.4.2 (BLOQUE 5) — FAMILIARES EN EL ARCHIVO VASCO CON IA ==========
+# La opción 1.3 del menú. Busca SOLO en el buscador de registros sacramentales
+# del AHDV (artxibo.euskadi.eus, 1481-1900): ni Tavily ni web abierta, porque
+# ahí no hay partidas del siglo XIX (medido: 449 extracciones, 0 antepasados).
+#
+# El truco que funciona (lo aportó el usuario): buscar por el PRIMER APELLIDO
+# (no por el nombre completo) y abrir las FICHAS de los registros, que son las
+# que dicen el nombre del nacido y el de sus padres. De cada fila se sacan
+# TODOS los apellidos (los del nacido y los de sus padres) y se vuelven a
+# buscar: así entran las líneas de las MUJERES, que son la mitad del árbol.
+AGENTE_MAX_LLM = 25                # llamadas a la IA por tanda (es lo que gasta)
+AGENTE_MAX_CONSULTAS = 120         # consultas al buscador del archivo (gratis)
+AGENTE_MAX_FICHAS = 40             # fichas abiertas por tanda (gratis, pero red)
+AGENTE_FICHAS_POR_APELLIDO = 4     # fichas como mucho por apellido buscado
+AGENTE_FILAS_POR_LLAMADA = 60      # filas que se le enseñan a la IA de una vez
+AGENTE_MAX_TOKENS_SALIDA = 3000    # techo de salida de la respuesta de la IA
+AGENTE_VENTANA_MARGEN = (90, 20)   # ventana de generaciones: (min-90, max+20)
+AGENTE_DELAY = (0.4, 1.0)          # cortesía entre consultas (segundos)
+AGENTE_VENTANA = "agente_alava.json"              # estado reanudable
+AGENTE_INFORME = "familiares_archivo_vasco.md"    # la lista para leer
+
 APELLIDOS_COMUNES = {
     "garcia", "gonzalez", "rodriguez", "fernandez", "lopez", "martinez",
     "sanchez", "perez", "gomez", "martin", "jimenez", "ruiz", "hernandez",

@@ -144,6 +144,12 @@ SUBMENUS = {
                   "TODAS las líneas, incluida la de las mujeres, y saca también "
                   "hermanos y tíos. Gratis, pero tarda; se puede cortar con "
                   "Ctrl+C y continúa donde lo dejó"),
+            "3": ("buscar familiares en el archivo vasco (con IA)",
+                  "busca SOLO en el buscador del AHDV por el primer apellido "
+                  "(la lista larga, donde están los familiares), abre las "
+                  "fichas (que dicen el nombre y los padres) y repite con los "
+                  "apellidos que aparecen, incluidos los de las madres. La IA "
+                  "lee los resultados: GASTA unos céntimos"),
         },
     },
     "4": {
@@ -1142,6 +1148,23 @@ def accion_linaje(interprete: str, sin_log: bool = False) -> int:
               "la próxima vez sigue donde lo dejó)")
 
 
+def accion_agente_archivo(interprete: str, sin_log: bool = False) -> int:
+    """Opción 1.3: buscar familiares en el archivo vasco CON IA (opción 1.3).
+
+    Busca solo en el buscador del AHDV (gratis), pero la IA que lee los
+    resultados y decide qué buscar después SÍ gasta unos céntimos: por eso se
+    confirma antes como todas las acciones que gastan.
+    """
+    return _lanzar_gastando(
+        [interprete, "ramas.py", "--agente-archivo", "--rama", "alava"],
+        opcion="1.3", descripcion="familiares en el archivo vasco (con IA)",
+        sin_log=sin_log,
+        aviso="(el buscador del AHDV es gratis; lo que gasta son las llamadas a "
+              "la IA que lee los resultados, unos céntimos por tanda. Busca "
+              "hasta que se acaban los topes o le das a Ctrl+C: no se pierde "
+              "nada, continúa donde lo dejó)")
+
+
 def accion_solicitudes(interprete: str, sin_log: bool = False) -> int:
     """Opción 9.1: --solicitudes del árbol (solicitudes.json + .md)."""
     return _lanzar_escribiendo(
@@ -1223,6 +1246,7 @@ def accion_fase2_sin_cache(interprete: str, sin_log: bool = False) -> int:
 ACCIONES = {
     # Las tres líneas de la familia: la 1 abre submenú, 2 y 3 hacen lo suyo
     "1.1": accion_rama_alava, "1.2": accion_linaje,
+    "1.3": accion_agente_archivo,
     "2": accion_rama_zamora, "3": accion_rama_palencia,
     # Submenú 4 — Investigar
     "4.1": accion_fase1, "4.2": accion_fase2, "4.3": accion_ciclo,
@@ -1245,7 +1269,7 @@ ACCIONES = {
 # Qué opción hay que pulsar para llegar a cada acción (para el mensaje de
 # opción no reconocida y para los tests de cobertura).
 ETIQUETA_ACCION = {
-    "1.1": "1 -> 1", "1.2": "1 -> 2", "2": "2", "3": "3",
+    "1.1": "1 -> 1", "1.2": "1 -> 2", "1.3": "1 -> 3", "2": "2", "3": "3",
     "4.1": "4 -> 1", "4.2": "4 -> 2", "4.3": "4 -> 3", "4.4": "4 -> 4",
     "4.5": "4 -> 5",
     "5.1": "5 -> 1", "5.2": "5 -> 2", "5.3": "5 -> 3",

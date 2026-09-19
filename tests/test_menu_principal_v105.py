@@ -789,7 +789,7 @@ def test_no_se_ha_perdido_ninguna_funcionalidad():
     fase 1, personas y chuleta. Y las tres primeras son las LÍNEAS de la
     familia (Álava · Zamora · Palencia), nombradas por parentesco."""
     assert set(menu.ACCIONES) == {
-        "1.1", "1.2", "2", "3",                      # las tres líneas
+        "1.1", "1.2", "1.3", "2", "3",               # las tres líneas
         "4.1", "4.2", "4.3", "4.4", "4.5",           # investigar
         "5.1", "5.2", "5.3",                         # árbol y cola
         "6.1", "6.2",                                # OCR
@@ -800,8 +800,9 @@ def test_no_se_ha_perdido_ninguna_funcionalidad():
     assert menu.OPCIONES["1"][0].startswith("Línea paterna de tu madre")
     assert menu.OPCIONES["2"][0].startswith("Línea de tu padre")
     assert menu.OPCIONES["3"][0].startswith("Línea materna de tu madre")
-    # la opción 1 abre submenú: informe/solicitudes y rastreo del linaje
-    assert set(menu.SUBMENUS["1"]["opciones"]) == {"1", "2"}
+    # la opción 1 abre submenú: informe/solicitudes, rastreo del linaje y la
+    # búsqueda de familiares en el archivo vasco con IA
+    assert set(menu.SUBMENUS["1"]["opciones"]) == {"1", "2", "3"}
 
 
 def test_la_opcion_del_linaje_lanza_el_rastreo(monkeypatch, py, capsys):

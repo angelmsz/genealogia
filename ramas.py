@@ -43,6 +43,7 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from agent import ramas                                    # noqa: E402
+from config import AGENTE_MAX_FICHAS, AGENTE_MAX_LLM        # noqa: E402
 from config import ARTXIBO_ANIO_MAX                         # noqa: E402
 from config import BASE_DIR as DIR_PROYECTO                 # noqa: E402
 from config import LINAJE_MAX_CONSULTAS                     # noqa: E402
@@ -127,6 +128,163 @@ buscar_sacramentales`), pero en producción es lo que consulta el portal: todas
         return filas
 
     return buscar
+
+
+def _buscador_agente(max_filas: int):
+    """Buscador del archivo por PRIMER APELLIDO (opción 1.3).
+
+    Es el truco que funciona: pedir el apellido a secas ('Saenz de Navarrete')
+    devuelve la lista larga del índice... y ahí están los familiares (hermanos,
+    tíos, primos). Se prueban los tres sacramentos porque el matrimonio trae a
+    los dos cónyuges.
+
+    Doble para los tests (que parchean `scrapers.artxibo.buscar_sacramentales`).
+    """
+    from scrapers import artxibo
+    from config import sin_tildes
+
+    def buscar(apellido, tipo="bautismo", anio_ini=None, anio_fin=None,
+               **kwargs):
+        filas = artxibo.buscar_sacramentales(
+            tipo=tipo, apellido1=apellido, anio_ini=anio_ini,
+            anio_fin=anio_fin, max_filas=max_filas)
+        if not filas and sin_tildes(apellido) != (apellido or ""):
+            filas = artxibo.buscar_sacramentales(
+                tipo=tipo, apellido1=sin_tildes(apellido), anio_ini=anio_ini,
+                anio_fin=anio_fin, max_filas=max_filas)
+        return filas
+
+    return buscar
+
+
+def _abridor_de_fichas():
+    """Abre la FICHA de un registro (la página que dice el nombre del nacido y
+    el de sus padres, y enlaza el libro digitalizado)."""
+    from scrapers import artxibo
+
+    def abrir(tipo, id_):
+        return artxibo.ficha(tipo, id_=id_)
+
+    return abrir
+
+
+def ejecutar_agente(rama: str, base: Path | None = None,
+                    max_llm: int | None = None,
+                    max_consultas: int | None = None,
+                    max_fichas: int | None = None, reiniciar: bool = False,
+                    solo_listar: bool = False,
+                    apellidos_extra: list[str] | None = None) -> int:
+    """Opción 1.3: buscar FAMILIARES en el archivo vasco, con la IA leyendo.
+
+    Busca solo en el buscador de registros sacramentales del AHDV (Álava,
+    1481-1900): por el primer apellido, abriendo las fichas y repitiendo con
+    todos los apellidos que aparecen (incluidos los de las madres). La IA
+    (deepseek v4.1-flash) dice qué filas son familiares y qué buscar después;
+    los nombres y las citas salen de las filas reales. GASTA dinero (pocos
+    céntimos) en las llamadas a la IA.
+    """
+    from agent import agente_archivo as agente
+    from config import (AGENTE_FICHAS_POR_APELLIDO, AGENTE_MAX_CONSULTAS,
+                        AGENTE_MAX_FICHAS, AGENTE_MAX_LLM, ARTXIBO_MAX_FILAS)
+    from utils.llm import PresupuestoExcedido
+    try:
+        rama = ramas.resolver_rama(rama)
+    except ValueError as e:
+        ui.log_error(str(e))
+        return 1
+    if rama != ramas.RAMA_ALAVA:
+        ui.log_error("Esta búsqueda necesita un índice nominal online: hoy solo "
+                     "lo tiene Álava (AHDV, 1481-1900). Para Zamora y Palencia "
+                     "hay que pedir las partidas al archivo.")
+        return 1
+    base = base if base is not None else DIR_PROYECTO
+    tope_llm = max_llm or AGENTE_MAX_LLM
+    tope_consultas = max_consultas or AGENTE_MAX_CONSULTAS
+    tope_fichas = max_fichas or AGENTE_MAX_FICHAS
+    ui.cabecera("Familiares en el archivo vasco (AHDV) — con IA")
+
+    estado = (agente.estado_vacio(rama) if reiniciar
+              else agente.cargar_estado(base=base, rama=rama))
+    antes = agente.resumen(estado)
+    if antes["personas"] or antes["apellidos"]:
+        ui.log(f"Se continúa la búsqueda anterior: {antes['personas']} "
+               f"familiar(es) en la lista, {antes['apellidos']} apellido(s) "
+               f"vistos, {antes['pendientes']} por buscar.")
+
+    # Punto de partida: la gente de la línea (para contexto y para que la lista
+    # no parezca vacía) y los apellidos de la línea, que es por donde empieza.
+    personas = ramas.personas_de_rama(rama, base=base)
+    for persona in personas:
+        agente.anotar_conocido(
+            estado, nombre=(persona.get("nombre") or "").split()[0],
+            apellido1=persona.get("apellido_paterno", ""),
+            apellido2=persona.get("apellido_materno", ""),
+            anio=persona.get("anio"), municipio=persona.get("municipio", ""),
+            parentesco=persona.get("origen", ""))
+    for apellido in (ramas.apellidos_de_rama(personas)
+                     + list(apellidos_extra or [])):
+        if agente.apuntar_apellido(estado, apellido, "la línea de tu madre"):
+            ui.log(f"Apellido de partida: «{apellido}»")
+    if not estado["cola"]:
+        ui.log_warn("No hay ningún apellido que buscar: revisa la rama de Álava "
+                    "en familia_conocida.json o pasa --apellido.")
+        return 1
+
+    buscar = _buscador_agente(ARTXIBO_MAX_FILAS)
+    abrir = _abridor_de_fichas()
+    contador = {"n": 0}
+
+    def avisar(texto: str) -> None:
+        contador["n"] += 1
+        ui.log(texto)
+
+    ui.log(f"Buscando en el índice del AHDV (gratis) con la IA leyendo "
+           f"(deepseek v4.1-flash): hasta {tope_llm} llamadas a la IA, "
+           f"{tope_consultas} consultas al archivo y {tope_fichas} fichas. "
+           f"Ctrl+C no pierde nada.")
+    try:
+        estado = agente.investigar(
+            estado, buscar, abrir, None, max_llm=tope_llm,
+            max_consultas=tope_consultas, max_fichas=tope_fichas,
+            fichas_por_apellido=AGENTE_FICHAS_POR_APELLIDO, avisar=avisar,
+            pausa=agente.AGENTE_DELAY, base=base)
+    except PresupuestoExcedido as e:
+        ui.log_warn(f"Presupuesto agotado ({e}): se guarda lo hecho.")
+    except KeyboardInterrupt:
+        ui.log_warn("Interrumpido: se guarda lo hecho y se puede continuar "
+                    "otro día.")
+
+    datos = agente.resumen(estado)
+    ui.log_ok(f"{datos['personas']} familiar(es) en la lista: "
+              f"{datos['partida']} los dice la partida, {datos['reservas']} con "
+              f"2 datos y {datos['pistas']} son pistas.")
+    ui.log(f"Apellidos buscados: {datos['buscados']} de {datos['apellidos']} · "
+           f"consultas al archivo: {datos['consultas']} · fichas: "
+           f"{datos['fichas']} · llamadas a la IA: {datos['llamadas_llm']} "
+           f"(${datos['coste_llm']:.4f})")
+    if datos["anio_min"]:
+        ui.log(f"Años cubiertos: {datos['anio_min']} – {datos['anio_max']}")
+    if datos["pendientes"]:
+        ui.log(f"Quedan {datos['pendientes']} apellido(s) para la próxima "
+               f"tanda (se continúa solo).")
+    for persona in sorted(estado["personas"].values(),
+                          key=lambda p: (p.get("nivel"), p.get("anio") or 0)):
+        if persona.get("nivel") == agente.NIVEL_ARBOL:
+            continue
+        ui.log(f"   - {persona.get('anio') or '¿?'} · "
+               f"{persona.get('nombre')} {persona.get('apellido1')} "
+               f"{persona.get('apellido2')} · {persona.get('parentesco') or '—'}"
+               f" · {agente.ETIQUETA_SELLO.get(persona.get('nivel'), '')}")
+    if solo_listar:
+        ui.log("(modo --solo-listar: no se ha escrito nada)")
+        print(agente.informe(estado))
+        return 0
+    ruta_md = agente.escribir_informe(estado, base=base)
+    respaldo = agente.guardar_estado(estado, base=base)
+    ui.log_ok(f"Lista de familiares: {ruta_md}")
+    ui.log(f"Estado reanudable: {base / agente.AGENTE_VENTANA}"
+           + (f" (copia previa: {Path(respaldo).name})" if respaldo else ""))
+    return 0
 
 
 def ejecutar_linaje(rama: str, base: Path | None = None,
@@ -337,6 +495,21 @@ def _argumentos(argv: list[str] | None = None) -> argparse.Namespace:
                    help="en vez de preparar solicitudes, RASTREA el linaje "
                         "hacia arriba por el índice de Álava (gratis; se puede "
                         "cortar con Ctrl+C y continúa donde lo dejó)")
+    p.add_argument("--agente-archivo", action="store_true",
+                   help="BUSCA FAMILIARES en el buscador del archivo vasco "
+                        "(AHDV) con la IA leyendo los resultados: por el primer "
+                        "apellido, abriendo las fichas y repitiendo con los "
+                        "apellidos de las madres. GASTA unos céntimos de IA; "
+                        "también se puede cortar y continuar")
+    p.add_argument("--apellido", action="append", default=None, metavar="APELLIDO",
+                   help="apellido extra por el que empezar (se puede repetir). "
+                        "Útil para arrancar en una línea concreta")
+    p.add_argument("--max-llm", type=int, default=None,
+                   help="llamadas a la IA en esta tanda (por defecto, "
+                        f"{AGENTE_MAX_LLM})")
+    p.add_argument("--max-fichas", type=int, default=None,
+                   help="fichas abiertas en esta tanda (por defecto, "
+                        f"{AGENTE_MAX_FICHAS})")
     p.add_argument("--max-consultas", type=int, default=None,
                    help="consultas al índice en esta tanda (por defecto, "
                         f"{LINAJE_MAX_CONSULTAS})")
@@ -351,6 +524,13 @@ def _argumentos(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _argumentos(argv)
     _preparar_salida()
+    if args.agente_archivo:
+        return ejecutar_agente(args.rama, max_llm=args.max_llm,
+                               max_consultas=args.max_consultas,
+                               max_fichas=args.max_fichas,
+                               reiniciar=args.reiniciar,
+                               solo_listar=args.solo_listar,
+                               apellidos_extra=args.apellido)
     if args.linaje:
         return ejecutar_linaje(args.rama, max_consultas=args.max_consultas,
                                reiniciar=args.reiniciar,

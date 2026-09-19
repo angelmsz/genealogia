@@ -59,6 +59,12 @@ solicitudes_rama_*.json
 linaje_alava.json
 linaje_alava.json.bak*
 linaje_alava.md
+# v10.4.2 (BLOQUE 5) — familiares encontrados en el archivo vasco con IA
+# (estado reanudable + lista). Nombres, fechas y municipios de la familia: el
+# repositorio es PÚBLICO, así que nunca al repo.
+agente_alava.json
+agente_alava.json.bak*
+familiares_archivo_vasco.md
 candidatos_ensenada.json
 registro_confirmaciones.jsonl
 
