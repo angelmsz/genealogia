@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 
 import scrapers.archivos as archivos
+import scrapers.artxibo as artxibo
 from config import (FAMILYSEARCH_DELAY, HISPAGEN_BUSQUEDA, SALIDA_SOLICITUDES)
 from scrapers.archivos_provinciales import (
     ARCHIVOS_PROVINCIA, estado_ensenada_particulares,
@@ -493,13 +494,19 @@ def test_integrar_solicitudes_ensenada_es_idempotente(tmp_path, monkeypatch):
 def test_recolectar_incluye_los_nuevos_conectores(monkeypatch):
     """recolectar() ejecuta HISPAGEN y FamilySearch además de
     SIGA/ADDO/PARES (los nuevos son import perezoso: se parchea el
-    módulo fuente)."""
+    módulo fuente).
+
+    v10.4.2 (BLOQUE 2): artxibo entra en el orquestador. También se parchea
+    (su módulo fuente): con un objetivo de Álava intentaría una petición REAL
+    a artxibo.euskadi.eus, y la suite es 100% offline."""
     llamadas: list[str] = []
     monkeypatch.setattr(hispagen, "recolector_hispagen",
                         lambda o, c=None: (llamadas.append("hispagen") or []))
     monkeypatch.setattr(familysearch, "recolector_familysearch",
                         lambda o, c=None: (llamadas.append("familysearch")
                                            or []))
+    monkeypatch.setattr(artxibo, "recolector_artxibo",
+                        lambda o, c=None: (llamadas.append("artxibo") or []))
     monkeypatch.setattr(archivos, "recolector_siga",
                         lambda o, c=None: [])
     monkeypatch.setattr(archivos, "recolector_addo",
@@ -511,7 +518,7 @@ def test_recolectar_incluye_los_nuevos_conectores(monkeypatch):
                                 "apellido_paterno": "Merillas"},
                                conn=None)
     assert docs == []
-    assert set(llamadas) == {"hispagen", "familysearch"}
+    assert set(llamadas) == {"hispagen", "familysearch", "artxibo"}
 
 
 def test_hispagen_busqueda_con_timeout_y_verify_false():

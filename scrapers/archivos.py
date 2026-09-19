@@ -25,7 +25,8 @@ from urllib.parse import urlencode
 from bs4 import BeautifulSoup
 
 from config import (ADDO_BUSQUEDA, ADDO_URL, CONECTOR_MAX_CONSULTAS,
-                    DELAY_DESCARGAS, DB_LOCK, MUNICIPIOS_EQUIVALENTES,
+                    DELAY_DESCARGAS, DB_LOCK, MARCA_CONFIANZA_BAJA,
+                    MUNICIPIOS_EQUIVALENTES,
                     PAGINAS_CONECTOR, PARES_CATASTRO, PROVINCIAS_SIN_ENSENADA,
                     SESSION, SIGA_FILAS_POR_DOC, SIGA_URL,
                     _conector_en_cooldown, _consulta_conector_hecha,
@@ -93,9 +94,14 @@ def con_comodin(apellido: str) -> str:
 
 
 def _formas_siga(apellido: str) -> list[str]:
-    """Formas de búsqueda de un apellido en SIGA, por orden de rendimiento:
-    primero los tokens sueltos (lo que el índice guarda de verdad), después
-    el compuesto completo por si acaso. Sin tildes y con comodín si aplica.
+    """Formas FRAGMENTADAS de búsqueda de un apellido en SIGA: los tokens
+    sueltos (lo que el índice guarda de verdad) y, por si acaso, el compuesto
+    completo con y sin comodín. Sin tildes y con comodín si aplica.
+
+    v10.4.2 (BLOQUE 2): esto es la LISTA DE RESERVA. El llamador prueba antes
+    el apellido completo tal cual y solo recurre a estas formas si aquel
+    devuelve cero filas (ver recolector_siga); los resultados que salgan de
+    aquí van marcados como CONFIANZA BAJA.
     """
     formas: list[str] = []
     for tok in _tokens_apellido(apellido):
@@ -285,23 +291,34 @@ def siga_buscar(apellido1: str, sacramento: str = "", id_localidad: int = 55,
     return docs
 
 
-def _agrupar_docs_siga(docs: list[dict], etiqueta: str) -> list[dict]:
+def _agrupar_docs_siga(docs: list[dict], etiqueta: str,
+                       confianza: str = "alta") -> list[dict]:
     """Agrupa filas sueltas de SIGA en documentos de SIGA_FILAS_POR_DOC.
     Cada fila es un hecho; agrupadas mantienen la fase 2 barata y rápida
     (1 llamada por cada ~5 documentos en vez de 1 por fila) y el tamaño
-    corto evita el efecto 'lost in the middle'."""
+    corto evita el efecto 'lost in the middle'.
+
+    v10.4.2 (BLOQUE 2): ``confianza='baja'`` marca los documentos que salen
+    de FRAGMENTAR un apellido compuesto (ver _formas_siga)."""
+    bajo = confianza == "baja"
     out = []
     for i in range(0, len(docs), SIGA_FILAS_POR_DOC):
         grupo = docs[i:i + SIGA_FILAS_POR_DOC]
         if not grupo:
             continue
+        aviso = (f" {MARCA_CONFIANZA_BAJA}: estos resultados salen de partir "
+                 f"el apellido en trozos, así que muchos serán homónimos de "
+                 f"otras familias." if bajo else "")
         out.append({
             "origen": "siga",
             "url": grupo[0]["url"],
-            "titulo": f"SIGA — {etiqueta} (filas {i + 1}-{i + len(grupo)})",
+            "titulo": (f"SIGA — {etiqueta} (filas {i + 1}-{i + len(grupo)})"
+                       + (" [CONFIANZA BAJA]" if bajo else "")),
+            "confianza": confianza,
             "texto": ("Índice de registros sacramentales del Archivo Histórico "
                       "Diocesano de Vitoria (SIGA, 1481-1900). Búsqueda: "
-                      f"{etiqueta}. Cada línea es un registro independiente:\n"
+                      f"{etiqueta}." + aviso + " Cada línea es un registro "
+                      "independiente:\n"
                       + "\n".join(f"- {d['texto']}" for d in grupo)),
         })
     return out
@@ -344,7 +361,7 @@ def recolector_siga(objetivo: dict, conn=None) -> list[dict]:
     docs: list[dict] = []
     consultas = 0
 
-    def lanzar(ap, sacramento, idloc, clave, **extra):
+    def lanzar(ap, sacramento, idloc, clave, confianza="alta", **extra):
         nonlocal consultas
         if consultas >= CONECTOR_MAX_CONSULTAS:
             return []
@@ -374,7 +391,7 @@ def recolector_siga(objetivo: dict, conn=None) -> list[dict]:
             etiqueta += f" nombre={extra['nombre']}"
         if extra.get("esposa_apellido1"):
             etiqueta += f" x esposa '{extra['esposa_apellido1']}'"
-        return _agrupar_docs_siga(nuevas, etiqueta)
+        return _agrupar_docs_siga(nuevas, etiqueta, confianza)
 
     ap_p = (objetivo.get("apellido_paterno") or "").strip()
     ap_m = (objetivo.get("apellido_materno") or "").strip()
@@ -382,19 +399,38 @@ def recolector_siga(objetivo: dict, conn=None) -> list[dict]:
     filas_vistas: set = set()  # dedup de filas repetidas entre consultas
 
     for ap in [a for a in (ap_p, ap_m) if a]:
-        # 1) formas del apellido (tokens sueltos primero) en el municipio
-        for forma in _formas_siga(ap):
+        # 1) v10.4.2 (BLOQUE 2) — EL APELLIDO COMPLETO, PRIMERO.
+        # La auditoría estratégica (sección 2.3) demostró que fragmentar
+        # 'Saenz de Navarrete' en tokens inundaba el corpus de homónimos de
+        # los siglos XVI-XVII. Medido en el MISMO fondo documental (artxibo,
+        # 2026-09-19): el compuesto 'Saenz de Navarrete' devuelve 79 filas y
+        # el token 'Saenz' suelto 7.009. Así que se prueba el apellido entero
+        # y SOLO se fragmenta si devuelve cero filas; entonces los documentos
+        # van marcados como CONFIANZA BAJA.
+        compuesto = (ap or "").strip()
+        antes = len(docs)
+        docs += lanzar(compuesto, "bautismo", id_loc,
+                       f"siga::bautismo::{compuesto}::{id_loc}")
+        if len(docs) > antes:
+            continue          # el apellido entero funciona: no se fragmenta
+        # 2) formas fragmentadas (tokens) + fallback provincial, marcadas
+        formas = [f for f in _formas_siga(ap)
+                  if normalizar(f) != normalizar(compuesto)]
+        for forma in formas:
             docs += lanzar(forma, "bautismo", id_loc,
-                           f"siga::bautismo::{forma}::{id_loc}")
-        # 2) fallback provincial para tokens con poca presencia local
+                           f"siga::bautismo::{forma}::{id_loc}",
+                           confianza="baja")
+        # 3) fallback provincial para tokens con poca presencia local
         for tok in _tokens_apellido(ap):
             tok_sin = sin_tildes(tok)
             presentes = sum(1 for d in docs if tok_sin in normalizar(d["texto"]))
             if presentes < 10:
                 docs += lanzar(tok_sin, "bautismo", "",
-                               f"siga::bautismo::{tok_sin}::provincia")
+                               f"siga::bautismo::{tok_sin}::provincia",
+                               confianza="baja")
                 docs += lanzar(tok_sin, "matrimonio", "",
-                               f"siga::matrimonio::{tok_sin}::provincia")
+                               f"siga::matrimonio::{tok_sin}::provincia",
+                               confianza="baja")
 
     # 3) nombre de pila + primer apellido paterno, provincial (precisión)
     tokens_p = _tokens_apellido(ap_p)
@@ -718,7 +754,10 @@ def recolectar(objetivo: dict, conn=None) -> list[dict]:
     v10.3: el FIX 1 arregló la INSTANCIA, no la CLASE. Un fallo de
     programación en un conector (firma, import, atributo) ya no se
     confunde con un fallo de red: sale como log_error UNA vez por
-    ejecución y ese conector se aborta sin impedir a los demás."""
+    ejecución y ese conector se aborta sin impedir a los demás.
+
+    v10.4.2 (BLOQUE 2): se añade artxibo (artxibo.euskadi.eus, el buscador
+    JSON del mismo AHDV alavés)."""
     def _recolector_familysearch():
         from scrapers.familysearch import recolector_familysearch
         return recolector_familysearch(objetivo, conn)
@@ -730,6 +769,16 @@ def recolectar(objetivo: dict, conn=None) -> list[dict]:
     def _recolector_siga():
         return recolector_siga(objetivo, conn)
 
+    def _recolector_artxibo():
+        # v10.4.2 (BLOQUE 2): el MISMO fondo documental que SIGA (AHDV, Álava
+        # 1481-1900) pero por el buscador de artxibo.euskadi.eus, que devuelve
+        # las filas en JSON y SÍ acepta el apellido compuesto completo. Import
+        # perezoso al módulo (no a la función) para que los tests puedan
+        # parchear scrapers.artxibo.recolector_artxibo, igual que HISPAGEN y
+        # FamilySearch.
+        from scrapers import artxibo
+        return artxibo.recolector_artxibo(objetivo, conn)
+
     def _recolector_addo():
         return recolector_addo(objetivo, conn)
 
@@ -737,8 +786,8 @@ def recolectar(objetivo: dict, conn=None) -> list[dict]:
         return recolector_ensenada(objetivo, conn)
 
     docs: list[dict] = []
-    for conector in (_recolector_siga, _recolector_addo,
-                     _recolector_ensenada,
+    for conector in (_recolector_siga, _recolector_artxibo,
+                     _recolector_addo, _recolector_ensenada,
                      _recolector_hispagen, _recolector_familysearch):
         try:
             docs += conector()

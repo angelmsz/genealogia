@@ -826,6 +826,46 @@ AHP_ALAVA_URL = ("https://web.araba.eus/es/cultura/"
                  "archivos-y-patrimonio-documental")
 IRARGI_HOME = "https://artxibo.euskadi.eus"
 
+# ============ v10.4.2 (BLOQUE 2) — BUSCADOR SACRAMENTAL DE ARTXIBO ==========
+# El MISMO fondo documental que SIGA (Archivo Histórico Diocesano de Vitoria,
+# sacramentales de Álava 1481-1900) pero por otro interfaz: artxibo.euskadi.eus
+# (Dokuklik/IRARGI) devuelve las filas en JSON — su tabla DataTables llama a
+# una API interna — en vez de en HTML. Ventajas medidas el 2026-09-19:
+#   - el apellido compuesto COMPLETO funciona ('Saenz de Navarrete' -> 79
+#     filas) mientras que el token suelto ('Saenz') devuelve 7.009 homónimos;
+#   - cada fila trae folio, signatura, fondo y diócesis, así que la cita
+#     documental sale completa sin abrir la ficha;
+#   - la ficha (getFicha) es HTML estático, fácil de parsear.
+# RUTAS VERIFICADAS EN VIVO (2026-09-19). El formulario maintSimple publica su
+# jsessionid en el action; las búsquedas van por POST con JSON de DataTables.
+ARTXIBO_CONTENEDOR = ("https://www.artxibo.euskadi.eus/webartxi00-container"
+                      "/es/ad53aArchivoHistoricoWar")
+ARTXIBO_SACRAMENTALES_URL = ARTXIBO_CONTENEDOR + "/sacramentales/maintSimple"
+ARTXIBO_BUSQUEDA_URL = {
+    "bautismo": ARTXIBO_CONTENEDOR + "/sacramentales/busquedaBautismo",
+    "matrimonio": ARTXIBO_CONTENEDOR + "/sacramentales/busquedaMatrimonio",
+    "defuncion": ARTXIBO_CONTENEDOR + "/sacramentales/busquedaDefuncion",
+}
+ARTXIBO_FICHA_URL = {
+    "bautismo": ARTXIBO_CONTENEDOR + "/bautismo/getFicha",
+    "matrimonio": ARTXIBO_CONTENEDOR + "/matrimonio/getFicha",
+    "defuncion": ARTXIBO_CONTENEDOR + "/defuncion/getFicha",
+}
+ARTXIBO_TIPOS = ("bautismo", "matrimonio", "defuncion")
+# Valor del radio 'archivosDiocesanos' del formulario: 1 = Vitoria (Álava).
+ARTXIBO_ARCHIVO_VITORIA = "1"
+# Cobertura REAL del índice (medida: 1901-1910, 1911-1935 y 1901-1935 -> 0).
+ARTXIBO_ANIO_MIN, ARTXIBO_ANIO_MAX = 1481, 1900
+ARTXIBO_MAX_FILAS = 200          # tope de filas por búsqueda (1 sola pasada)
+ARTXIBO_FILAS_POR_DOC = 12       # filas agrupadas por documento del corpus
+
+# Marca visible (texto del corpus + título del documento) para los resultados
+# obtenidos FRAGMENTANDO un apellido compuesto: la auditoría estratégica
+# demostró que buscar 'Saenz' suelto inundaba el corpus de homónimos de los
+# siglos XVI-XVII. Se busca el compuesto primero y solo se fragmenta si
+# devuelve 0 filas; cuando pasa, el resultado va marcado y con menos peso.
+MARCA_CONFIANZA_BAJA = "CONFIANZA BAJA: apellido compuesto fragmentado"
+
 APELLIDOS_COMUNES = {
     "garcia", "gonzalez", "rodriguez", "fernandez", "lopez", "martinez",
     "sanchez", "perez", "gomez", "martin", "jimenez", "ruiz", "hernandez",

@@ -38,6 +38,7 @@ from pathlib import Path
 import pytest
 
 import scrapers.archivos as archivos
+import scrapers.artxibo as artxibo
 import scrapers.hispagen as hispagen
 import scrapers.web as web
 import utils.llm as llm
@@ -50,11 +51,14 @@ RAIZ = Path(__file__).resolve().parent.parent
 
 # ======================= FIX 1 — recolectar() ==============================
 
-def test_recolectar_pasa_objetivo_y_conn_a_los_cinco_conectores(monkeypatch):
+def test_recolectar_pasa_objetivo_y_conn_a_los_seis_conectores(monkeypatch):
     """FIX 1: en el log, SIGA/ADDO/Ensenada fallaban en CADA objetivo con
     'missing 1 required positional argument: objetivo' porque
-    recolectar() los invocaba sin argumentos. Ahora los cinco
-    conectores reciben (objetivo, conn)."""
+    recolectar() los invocaba sin argumentos. Ahora los conectores reciben
+    (objetivo, conn).
+
+    v10.4.2 (BLOQUE 2): artxibo entra en el orquestador entre SIGA y ADDO
+    (mismo fondo alavés); también se parchea para no tocar la red."""
     llamadas: list[tuple] = []
 
     def _fab(nombre):
@@ -68,6 +72,7 @@ def test_recolectar_pasa_objetivo_y_conn_a_los_cinco_conectores(monkeypatch):
     conn_falso = object()
 
     monkeypatch.setattr(archivos, "recolector_siga", _fab("siga"))
+    monkeypatch.setattr(artxibo, "recolector_artxibo", _fab("artxibo"))
     monkeypatch.setattr(archivos, "recolector_addo", _fab("addo"))
     monkeypatch.setattr(archivos, "recolector_ensenada", _fab("ensenada"))
     monkeypatch.setattr(hispagen, "recolector_hispagen",
@@ -78,8 +83,9 @@ def test_recolectar_pasa_objetivo_y_conn_a_los_cinco_conectores(monkeypatch):
     docs = archivos.recolectar(objetivo, conn=conn_falso)
 
     assert docs == []
-    assert [n for n, _, _ in llamadas] == ["siga", "addo", "ensenada",
-                                           "hispagen", "familysearch"]
+    assert [n for n, _, _ in llamadas] == ["siga", "artxibo", "addo",
+                                           "ensenada", "hispagen",
+                                           "familysearch"]
     for _, o, c in llamadas:
         assert o is objetivo, "cada conector debe recibir EL objetivo"
         assert c is conn_falso, "cada conector debe recibir EL conn"

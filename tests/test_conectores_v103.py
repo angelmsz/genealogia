@@ -16,6 +16,7 @@ Todo offline: sin red, sin LLM, sin tocar los datos del usuario.
 from __future__ import annotations
 
 import scrapers.archivos as archivos
+import scrapers.artxibo as artxibo
 import scrapers.familysearch as familysearch
 import scrapers.hispagen as hispagen
 import utils.ui as ui
@@ -25,7 +26,10 @@ OBJETIVO = {"municipio": "Vitoria", "provincia": "alava",
 
 
 def _silencio(monkeypatch) -> tuple[list, list]:
-    """Espías de log + los otros cuatro conectores mudos (sin red)."""
+    """Espías de log + los otros conectores mudos (sin red).
+
+    v10.4.2 (BLOQUE 2): artxibo se suma a la lista; con un objetivo de Álava
+    intentaría una petición REAL a artxibo.euskadi.eus."""
     avisos: list[str] = []
     errores: list[str] = []
     monkeypatch.setattr(ui, "log_warn", lambda m: avisos.append(str(m)))
@@ -33,6 +37,7 @@ def _silencio(monkeypatch) -> tuple[list, list]:
     monkeypatch.setattr(archivos, "recolector_addo", lambda o, c=None: [])
     monkeypatch.setattr(archivos, "recolector_ensenada", lambda o, c=None: [])
     monkeypatch.setattr(hispagen, "recolector_hispagen", lambda o, c=None: [])
+    monkeypatch.setattr(artxibo, "recolector_artxibo", lambda o, c=None: [])
     monkeypatch.setattr(familysearch, "recolector_familysearch",
                         lambda o, c=None: [])
     return avisos, errores
