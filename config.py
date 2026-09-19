@@ -1150,6 +1150,9 @@ AGENTE_VENTANA_MARGEN = (110, 50)  # ventana: (el más antiguo − 110, el más 
 AGENTE_DELAY = (0.4, 1.0)          # cortesía entre consultas (segundos)
 AGENTE_VENTANA = "agente_alava.json"              # estado reanudable
 AGENTE_INFORME = "familiares_archivo_vasco.md"    # la lista para leer
+AGENTE_INFORME_FAMILIAS = "familias_archivo_vasco.md"   # reconstrucción
+AGENTE_ARBOL_JSON = "arbol_archivo_vasco.json"    # árbol provisional (formato
+#                 del proyecto: se puede revisar y luego importar a mano)
 
 APELLIDOS_COMUNES = {
     "garcia", "gonzalez", "rodriguez", "fernandez", "lopez", "martinez",

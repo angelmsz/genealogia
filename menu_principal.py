@@ -150,6 +150,11 @@ SUBMENUS = {
                   "fichas (que dicen el nombre y los padres) y repite con los "
                   "apellidos que aparecen, incluidos los de las madres. La IA "
                   "lee los resultados: GASTA unos céntimos"),
+            "4": ("reconstruir las familias de un apellido (gratis)",
+                  "el apellido en los TRES sacramentos del AHDV, los hermanos "
+                  "agrupados por la pareja de padres y la lista de lo que "
+                  "FALTA (parejas sin boda, padres sin bautismo). Se le puede "
+                  "decir el pueblo. GRATIS: no usa la IA"),
         },
     },
     "4": {
@@ -1165,6 +1170,31 @@ def accion_agente_archivo(interprete: str, sin_log: bool = False) -> int:
               "nada, continúa donde lo dejó)")
 
 
+def accion_reconstruir(interprete: str, sin_log: bool = False) -> int:
+    """Opción 1.4: reconstruir las familias de un apellido (GRATIS, sin IA).
+
+    Es la forma de buscar que se probó a mano: el apellido en los tres
+    sacramentos del AHDV, los hermanos agrupados por la pareja que declaran
+    las partidas y la lista de lo que FALTA pedir al archivo. Se puede acotar
+    a un pueblo (Navaridas, Amurrio...). No gasta: solo lee el índice público.
+    """
+    apellido = _preguntar('  Apellido a reconstruir (Enter = los de la línea, '
+                          'ej. "Saenz de Navarrete"):', "")
+    pueblo = _preguntar("  Pueblo/parroquia (Enter = toda Álava, "
+                        'ej. "Navaridas"):', "")
+    argv = [interprete, "ramas.py", "--reconstruir", "--rama", "alava"]
+    if apellido:
+        argv += ["--apellido", apellido]
+    if pueblo:
+        argv += ["--pueblo", pueblo]
+    etiqueta = apellido or "los apellidos de la línea"
+    return _lanzar_escribiendo(
+        argv, opcion="1.4", descripcion=f"familias de {etiqueta}", sin_log=sin_log,
+        aviso="(GRATIS: solo lee el índice público del AHDV; escribe el informe "
+              "familias_archivo_vasco.md y un árbol provisional en "
+              "arbol_archivo_vasco.json. NO toca el árbol real)")
+
+
 def accion_solicitudes(interprete: str, sin_log: bool = False) -> int:
     """Opción 9.1: --solicitudes del árbol (solicitudes.json + .md)."""
     return _lanzar_escribiendo(
@@ -1246,7 +1276,7 @@ def accion_fase2_sin_cache(interprete: str, sin_log: bool = False) -> int:
 ACCIONES = {
     # Las tres líneas de la familia: la 1 abre submenú, 2 y 3 hacen lo suyo
     "1.1": accion_rama_alava, "1.2": accion_linaje,
-    "1.3": accion_agente_archivo,
+    "1.3": accion_agente_archivo, "1.4": accion_reconstruir,
     "2": accion_rama_zamora, "3": accion_rama_palencia,
     # Submenú 4 — Investigar
     "4.1": accion_fase1, "4.2": accion_fase2, "4.3": accion_ciclo,
@@ -1269,7 +1299,8 @@ ACCIONES = {
 # Qué opción hay que pulsar para llegar a cada acción (para el mensaje de
 # opción no reconocida y para los tests de cobertura).
 ETIQUETA_ACCION = {
-    "1.1": "1 -> 1", "1.2": "1 -> 2", "1.3": "1 -> 3", "2": "2", "3": "3",
+    "1.1": "1 -> 1", "1.2": "1 -> 2", "1.3": "1 -> 3", "1.4": "1 -> 4",
+    "2": "2", "3": "3",
     "4.1": "4 -> 1", "4.2": "4 -> 2", "4.3": "4 -> 3", "4.4": "4 -> 4",
     "4.5": "4 -> 5",
     "5.1": "5 -> 1", "5.2": "5 -> 2", "5.3": "5 -> 3",

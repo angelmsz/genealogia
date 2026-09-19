@@ -65,6 +65,18 @@ linaje_alava.md
 agente_alava.json
 agente_alava.json.bak*
 familiares_archivo_vasco.md
+# v10.4.2 (BLOQUE 6) — reconstrucción de familias por apellido (informe + árbol
+# provisional en el formato del proyecto). También llevan nombres y fechas.
+familias_archivo_vasco.md
+familias_archivo_vasco.md.bak*
+arbol_archivo_vasco.json
+arbol_archivo_vasco.json.bak*
+# v10.4.2 (BLOQUE 6) — los dos informes escritos a mano con los hallazgos y el
+# árbol provisional de Navaridas (60 personas, con nombres, fechas y folios).
+# Son para leer en casa: el repositorio es PÚBLICO, así que aquí no entran.
+docs/arbol_provisional_2026-09.md
+docs/arbol_provisional_2026-09.json
+docs/hallazgos_archivo_vasco_2026-09.md
 candidatos_ensenada.json
 registro_confirmaciones.jsonl
 

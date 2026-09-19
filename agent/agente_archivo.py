@@ -47,9 +47,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from config import (AGENTE_DELAY, AGENTE_FICHAS_POR_APELLIDO, AGENTE_FILAS_POR_LLAMADA,
-                    AGENTE_INFORME, AGENTE_MAX_APELLIDOS_IA, AGENTE_MAX_COLA,
-                    AGENTE_MAX_CONSULTAS,
+from config import (AGENTE_ARBOL_JSON, AGENTE_DELAY, AGENTE_FICHAS_POR_APELLIDO,
+                    AGENTE_FILAS_POR_LLAMADA, AGENTE_INFORME,
+                    AGENTE_INFORME_FAMILIAS, AGENTE_MAX_APELLIDOS_IA,
+                    AGENTE_MAX_COLA, AGENTE_MAX_CONSULTAS,
                     AGENTE_MAX_FICHAS, AGENTE_MAX_LLM, AGENTE_MAX_TOKENS_SALIDA,
                     AGENTE_MODELO, AGENTE_VENTANA, AGENTE_VENTANA_MARGEN,
                     APELLIDOS_COMUNES, BASE_DIR, escribir_con_backup,
@@ -71,9 +72,18 @@ ETIQUETA_SELLO = {
 }
 _ORDEN_SELLO = {SELLO_PARTIDA: 0, SELLO_RESERVAS: 1, SELLO_PISTA: 2}
 
-# Tipos de sacramento que se consultan por apellido. El BAUTISMO trae al nacido
-# con sus padres; el MATRIMONIO trae a los dos cónyuges (y engancha familias).
+# Tipos de sacramento que consulta la búsqueda CON IA (opción 1.3) por cada
+# apellido. El BAUTISMO trae al nacido con sus padres; el MATRIMONIO trae a los
+# dos cónyuges (y engancha familias). La DEFUNCIÓN no se consulta aquí: no trae
+# padres ni cónyuge, así que no añade familiares, y sí dobla las consultas por
+# apellido (se midió: 5 consultas por apellido en vez de 3, y la tanda se queda
+# antes sin presupuesto de consultas).
 TIPOS_BUSQUEDA = ("bautismo", "matrimonio")
+
+# La RECONSTRUCCIÓN (opción 1.4) sí va a los TRES sacramentos: es gratis y lo
+# que busca es la biografía completa de un apellido en una parroquia, con las
+# defunciones incluidas (fecha de muerte de cada uno).
+TIPOS_RECONSTRUIR = ("bautismo", "matrimonio", "defuncion")
 
 
 # ============================ PIEZAS PURAS =================================
@@ -1281,4 +1291,417 @@ def escribir_informe(estado: dict, base: Path | None = None) -> Path:
     base = base if base is not None else BASE_DIR
     ruta = Path(base) / AGENTE_INFORME
     escribir_con_backup(ruta, informe(estado))
+    return ruta
+
+
+# ============ RECONSTRUIR UNA FAMILIA EN UNA PARROQUIA (GRATIS) ============
+# Esto es "la forma de buscar" que se probó a mano en el AHDV el 2026-09-20 y
+# funcionó, puesta en el bot. La idea:
+#   1. Buscar UN APELLIDO en UNA parroquia, en los TRES sacramentos.
+#   2. Agrupar los BAUTISMOS por la pareja de padres que declara cada partida:
+#      eso da las FAMILIAS y los hermanos (no hay que creerse nada, lo dice la
+#      partida).
+#   3. Mirar qué FALTA: parejas sin boda en el índice (documentos que hay que
+#      pedir al archivo) y progenitores sin bautismo (la generación por buscar).
+#   4. Escribir un ÁRBOL PROVISIONAL en el formato del proyecto.
+# Todo GRATIS: solo se consulta el buscador público del archivo. Nada se escribe
+# en el árbol real.
+
+def _ficha_de_persona(nombre: str, ape1: str, ape2: str = "") -> str:
+    return f"{nombre} {ape1} {ape2}".strip()
+
+
+def familias_por_pareja(filas: list[dict]) -> list[dict]:
+    """Agrupa los BAUTISMOS por la PAREJA de padres que declara cada partida.
+
+    Si N partidas dicen «hijo de Pablo Saenz de Navarrete y Josefa Tellaeche»,
+    esos N son hermanos: lo dice el documento. Devuelve las familias ordenadas
+    por el hijo mayor.
+    """
+    familias: dict = {}
+    for fila in filas:
+        if fila.get("tipo") != "bautismo":
+            continue
+        padre = fila.get("padre") or {}
+        madre = fila.get("madre") or {}
+        if not padre.get("nombre") and not madre.get("nombre"):
+            continue
+        clave = (clave_persona(padre.get("nombre", ""),
+                               padre.get("apellido1", "")),
+                 clave_persona(madre.get("nombre", ""),
+                               madre.get("apellido1", "")))
+        familia = familias.setdefault(clave, {
+            "padre": padre.get("completo", ""),
+            "madre": madre.get("completo", ""),
+            "padre_nombre": padre.get("nombre", ""),
+            "padre_ape1": padre.get("apellido1", ""),
+            "padre_ape2": padre.get("apellido2", ""),
+            "madre_nombre": madre.get("nombre", ""),
+            "madre_ape1": madre.get("apellido1", ""),
+            "madre_ape2": madre.get("apellido2", ""),
+            "parroquia": fila.get("parroquia", ""),
+            "municipio": fila.get("municipio") or fila.get("localidad", ""),
+            "hijos": [],
+        })
+        quien = fila.get("persona") or {}
+        familia["hijos"].append({
+            "nombre": _ficha_de_persona(quien.get("nombre", ""),
+                                        quien.get("apellido1", ""),
+                                        quien.get("apellido2", "")),
+            "nombre_pila": quien.get("nombre", ""),
+            "ape1": quien.get("apellido1", ""),
+            "ape2": quien.get("apellido2", ""),
+            "anio": fila.get("anio"), "fecha": fila.get("fecha", ""),
+            "id": fila.get("id"), "folio": fila.get("folio", ""),
+            "cita": _cita_de_fila(fila), "url": fila.get("url", ""),
+        })
+    for familia in familias.values():
+        familia["hijos"].sort(key=lambda h: h.get("anio") or 0)
+        anios = [h["anio"] for h in familia["hijos"] if h.get("anio")]
+        familia["anio_ini"] = min(anios) if anios else None
+        familia["anio_fin"] = max(anios) if anios else None
+    return sorted(familias.values(),
+                  key=lambda f: (f["anio_ini"] or 9999, f["padre"] or f["madre"]))
+
+
+def _clave_pareja(el: dict, ella: dict) -> tuple:
+    return (clave_persona(el.get("nombre", ""), el.get("apellido1", "")),
+            clave_persona(ella.get("nombre", ""), ella.get("apellido1", "")))
+
+
+def parejas_sin_boda(familias: list[dict], bodas: list[dict]) -> list[dict]:
+    """Parejas que son padres según el índice pero de las que NO hay boda.
+
+    Son documentos QUE HAY QUE PEDIR: el índice tiene a sus hijos, pero su
+    matrimonio no está indexado (y la boda es la que dice de dónde eran).
+    """
+    casadas: set = set()
+    for boda in bodas:
+        if boda.get("tipo") != "matrimonio":
+            continue
+        el = boda.get("persona") or {}
+        ella = boda.get("conyuge") or {}
+        casadas.add(_clave_pareja(el, ella))
+        casadas.add(_clave_pareja(ella, el))
+    faltan = []
+    for familia in familias:
+        clave = (clave_persona(familia["padre_nombre"], familia["padre_ape1"]),
+                 clave_persona(familia["madre_nombre"], familia["madre_ape1"]))
+        if clave not in casadas:
+            faltan.append(familia)
+    return faltan
+
+
+def progenitores_sin_bautismo(familias: list[dict],
+                              bautismos: list[dict]) -> list[str]:
+    """Progenitores que salen nombrados en las partidas pero de los que NO
+    aparece su bautismo: la generación que falta buscar (o que no está en el
+    índice). Devuelve sus nombres con el primer apellido."""
+    bautizados = {clave_persona((f.get("persona") or {}).get("nombre", ""),
+                                (f.get("persona") or {}).get("apellido1", ""))
+                  for f in bautismos if f.get("tipo") == "bautismo"}
+    faltan: list[str] = []
+    for familia in familias:
+        for nombre, ape1 in ((familia["padre_nombre"], familia["padre_ape1"]),
+                             (familia["madre_nombre"], familia["madre_ape1"])):
+            if not nombre:
+                continue
+            if clave_persona(nombre, ape1) in bautizados:
+                continue
+            completo = _ficha_de_persona(nombre, ape1)
+            if completo not in faltan:
+                faltan.append(completo)
+    return faltan
+
+
+def reconstruir(buscar, apellido: str, municipio: str | None = None,
+                tipos: tuple = TIPOS_RECONSTRUIR, avisar=None,
+                pausa: tuple = AGENTE_DELAY) -> dict:
+    """Busca un APELLIDO en una parroquia en los tres sacramentos y reconstruye
+    las familias con lo que dicen las partidas. **GRATIS (sin IA).**
+
+    `buscar(apellido, tipo=..., municipio=...)` devuelve las filas del índice.
+    Es inyectable para poder probarlo sin red.
+    """
+    def di(texto: str) -> None:
+        if avisar:
+            avisar(texto)
+        else:
+            ui.log(texto)
+
+    filas: list[dict] = []
+    consultas = 0
+    for tipo in tipos:
+        donde = f" en {municipio}" if municipio else " en toda Álava"
+        di(f"Buscando «{apellido}» ({tipo}){donde}...")
+        try:
+            encontradas = buscar(apellido, tipo=tipo, municipio=municipio) or []
+        except Exception as e:              # noqa: BLE001 (red del portal)
+            di(f"   [!] el buscador no respondió ({tipo}): {str(e)[:80]}")
+            encontradas = []
+        consultas += 1
+        di(f"   {len(encontradas)} fila(s)")
+        filas.extend(encontradas)
+        time.sleep(random.uniform(*pausa))
+    # El portal repite filas entre búsquedas: sin duplicados.
+    vistas: set = set()
+    limpias: list[dict] = []
+    for fila in filas:
+        if fila.get("id") in vistas:
+            continue
+        vistas.add(fila.get("id"))
+        limpias.append(fila)
+    bautismos = [f for f in limpias if f.get("tipo") == "bautismo"]
+    bodas = [f for f in limpias if f.get("tipo") == "matrimonio"]
+    defunciones = [f for f in limpias if f.get("tipo") == "defuncion"]
+    familias = familias_por_pareja(limpias)
+    anios = [f.get("anio") for f in limpias if f.get("anio")]
+    return {
+        "apellido": apellido, "municipio": municipio or "",
+        "consultas": consultas, "filas": limpias, "bautismos": bautismos,
+        "bodas": bodas, "defunciones": defunciones, "familias": familias,
+        "sin_boda": parejas_sin_boda(familias, bodas),
+        "sin_bautismo": progenitores_sin_bautismo(familias, bautismos),
+        "anio_min": min(anios) if anios else None,
+        "anio_max": max(anios) if anios else None,
+    }
+
+
+def resumen_familias(recon: dict) -> dict:
+    return {"apellido": recon.get("apellido", ""),
+            "municipio": recon.get("municipio", ""),
+            "familias": len(recon.get("familias", [])),
+            "hijos": sum(len(f["hijos"]) for f in recon.get("familias", [])),
+            "bodas": len(recon.get("bodas", [])),
+            "defunciones": len(recon.get("defunciones", [])),
+            "sin_boda": len(recon.get("sin_boda", [])),
+            "sin_bautismo": len(recon.get("sin_bautismo", [])),
+            "consultas": recon.get("consultas", 0),
+            "anio_min": recon.get("anio_min"), "anio_max": recon.get("anio_max")}
+
+
+def informe_familias(recon: dict) -> str:
+    """El informe de la reconstrucción: las familias, los hermanos, y LO QUE
+    FALTA (que es lo que hay que pedir al archivo)."""
+    datos = resumen_familias(recon)
+    cabecera = (f"{recon.get('apellido', '')}"
+                + (f" en {recon['municipio']}" if recon.get("municipio")
+                   else " (toda Álava)"))
+    lineas = [
+        f"# Familias reconstruidas en el archivo vasco — {cabecera}", "",
+        "Búsqueda **solo** en el buscador de sacramentales del AHDV "
+        "(artxibo.euskadi.eus), en los tres sacramentos (bautismos, matrimonios "
+        "y defunciones). Las familias salen de lo que dice cada partida: si N "
+        "bautismos nombran a la misma pareja de padres, esos N son hermanos.",
+        "",
+        f"- Filas del índice: **{len(recon.get('filas', []))}** "
+        f"({datos['bodas']} bodas, {datos['defunciones']} defunciones, "
+        f"{datos['hijos']} bautismos)",
+        f"- Familias reconstruidas: **{datos['familias']}**",
+        f"- Años: {datos['anio_min'] or '¿?'} – {datos['anio_max'] or '¿?'}",
+        f"- Consultas al archivo: **{datos['consultas']}** (gratis, sin IA)", "",
+        "## Las familias", "",
+    ]
+    for i, familia in enumerate(recon.get("familias", []), 1):
+        titulo = " y ".join(p for p in (familia["padre"], familia["madre"]) if p)
+        lineas.append(f"### {i}. {titulo or '(padres sin nombre)'}")
+        lineas.append("")
+        lugar = ", ".join(p for p in (familia.get("parroquia"),
+                                     familia.get("municipio")) if p)
+        if lugar:
+            lineas.append(f"*{lugar}*")
+        lineas.append("")
+        for hijo in familia["hijos"]:
+            cita = hijo.get("cita") or ""
+            enlace = f" · [ficha]({hijo['url']})" if hijo.get("url") else ""
+            lineas.append(f"- **{hijo['anio'] or '¿?'}** — {hijo['nombre']}"
+                          + (f" — {cita}" if cita else "") + enlace)
+        lineas.append("")
+    if recon.get("sin_boda"):
+        lineas += ["## Documentos que FALTAN: parejas sin boda en el índice", "",
+                   "El índice tiene a sus hijos, pero no su matrimonio. **La boda"
+                   " es la que dice de dónde eran**: son las copias que merece la"
+                   " pena pedir al archivo.", ""]
+        for familia in recon["sin_boda"]:
+            titulo = " ✕ ".join(p for p in (familia["padre"], familia["madre"]) if p)
+            anios = [f"{h['anio']}" for h in familia["hijos"] if h.get("anio")]
+            rango = f"{anios[0]}–{anios[-1]}" if anios else "¿?"
+            lineas.append(f"- **{titulo or '(sin nombre)'}** — hijos: "
+                          f"{len(familia['hijos'])} ({rango}) · "
+                          f"{familia.get('parroquia') or ''} "
+                          f"{familia.get('municipio') or ''}")
+        lineas.append("")
+    if recon.get("sin_bautismo"):
+        lineas += ["## Generación por buscar: progenitores sin bautismo", "",
+                   "Salen nombrados en las partidas, pero su propio bautismo no "
+                   "aparece en lo buscado (no está en el índice, está en otro "
+                   "pueblo o se busca por su nombre de pila + apellido:", ""]
+        lineas += [f"- {nombre}" for nombre in recon["sin_bautismo"]]
+        lineas.append("")
+    if recon.get("defunciones"):
+        lineas += ["## Defunciones", ""]
+        for fila in recon["defunciones"]:
+            quien = (fila.get("persona") or {}).get("completo", "")
+            lineas.append(f"- {fila.get('anio') or '¿?'} — {quien} — "
+                          f"{_cita_de_fila(fila)}")
+        lineas.append("")
+    lineas += ["---", "",
+               "Nada de esto se ha escrito en el árbol: es un árbol PROVISIONAL "
+               "para revisar. Lo que no dice una partida, no está aquí."]
+    return "\n".join(lineas)
+
+
+def arbol_de_familias(recon: dict) -> dict:
+    """El árbol provisional en el FORMATO DEL PROYECTO (`familia_conocida.json`).
+
+    Cada pareja entra como padre y madre, y cada hijo con su `padre`/`madre`
+    puestos; en `notas` va la cita para poder comprobarlo. Es para revisar y,
+    si convence, importar a mano. **No se escribe en el árbol real.**
+
+    DOS REGLAS que se vieron necesarias EJECUTANDO (Navaridas, apellido Dopico):
+
+    1. **La misma persona entra UNA vez.** En el índice la misma mujer sale con
+       año en su bautismo ("Leocadia Dopico Guzman, 1863", como hija) y sin año
+       cuando la nombran las partidas de sus hijos ("Leocadia Dopico", como
+       madre): con la clave que incluía el año, salía DUPLICADA. Ahora la
+       persona es la misma si coinciden nombre y primer apellido y los años no
+       se contradicen (uno de los dos sin año, o el mismo año).
+    2. **Dos hermanos con el mismo nombre son dos personas.** Si los dos traen
+       año y NO cuadra (los dos "Julian Dopico Guzman", 1871 y 1877), se quedan
+       separados y se distinguen con el año en el nombre ("… (1877)"), porque el
+       formato del proyecto enlaza padres e hijos POR NOMBRE.
+    """
+    fichas: dict[str, dict] = {}
+    orden: list[str] = []
+    indice: dict[str, list[str]] = {}          # nombre+1er apellido -> claves
+
+    def meter(nombre: str, ape1: str, ape2: str, anio, municipio: str,
+              papel: str, padre: str = "", madre: str = "",
+              nota: str = "", completo: str = "") -> str:
+        """Mete (o encuentra) a una persona y devuelve su clave.
+
+        `nombre` es el de pila (es lo que identifica en el índice); `completo`
+        es cómo se escribe la persona entera en la partida, que es lo que se
+        enseña."""
+        if not nombre:
+            return ""
+        base = clave_persona(nombre, ape1)
+        clave = ""
+        for candidata in indice.get(base, []):
+            anio_ya = fichas[candidata].get("anio")
+            if anio_ya is None or anio is None or anio_ya == anio:
+                clave = candidata
+                break
+        if not clave:
+            clave = clave_persona(nombre, ape1, anio)
+            indice.setdefault(base, []).append(clave)
+            fichas[clave] = {"nombre": completo or nombre, "ape1": ape1,
+                             "ape2": ape2, "anio": anio, "municipio": municipio,
+                             "papeles": set(), "padre": "", "madre": "",
+                             "hijos": [], "notas": []}
+            orden.append(clave)
+        ficha = fichas[clave]
+        ficha["papeles"].add(papel)
+        if ficha["nombre"].count(" ") < (completo or "").count(" "):
+            ficha["nombre"] = completo       # se guarda el nombre MÁS completo
+        if not ficha["ape1"] and ape1:
+            ficha["ape1"] = ape1
+        if not ficha["ape2"] and ape2:
+            ficha["ape2"] = ape2
+        if not ficha["padre"] and padre:
+            ficha["padre"] = padre
+        if not ficha["madre"] and madre:
+            ficha["madre"] = madre
+        if ficha["anio"] is None and anio:
+            ficha["anio"] = anio          # manda el documento, no la estimación
+        if not ficha["municipio"] and municipio:
+            ficha["municipio"] = municipio
+        if nota and nota not in ficha["notas"]:
+            ficha["notas"].append(nota)
+        return clave
+
+    for familia in recon.get("familias", []):
+        municipio = familia.get("municipio", "")
+        clave_p = meter(familia["padre_nombre"], familia["padre_ape1"],
+                        familia["padre_ape2"], None, municipio, "padre",
+                        completo=familia["padre"])
+        clave_m = meter(familia["madre_nombre"], familia["madre_ape1"],
+                        familia["madre_ape2"], None, municipio, "madre",
+                        completo=familia["madre"])
+        for hijo in familia["hijos"]:
+            clave_h = meter(hijo.get("nombre_pila") or hijo["nombre"],
+                            hijo.get("ape1", ""), hijo.get("ape2", ""),
+                            hijo.get("anio"), municipio, "bautizado",
+                            padre=clave_p, madre=clave_m,
+                            completo=hijo["nombre"],
+                            nota=(f"Bautismo {hijo.get('fecha') or hijo.get('anio')}"
+                                  f" · {hijo.get('cita') or ''} · "
+                                  f"id {hijo.get('id')}"))
+            for clave_progenitor in (clave_p, clave_m):
+                if clave_progenitor and clave_h not in fichas[clave_progenitor]["hijos"]:
+                    fichas[clave_progenitor]["hijos"].append(clave_h)
+
+    # Los nombres se ponen AL FINAL, cuando ya se sabe si hay homónimos.
+    cuenta: dict[str, int] = {}
+    for clave in orden:
+        nombre = fichas[clave]["nombre"]
+        cuenta[nombre] = cuenta.get(nombre, 0) + 1
+    etiquetas: dict[str, str] = {}
+    usadas: set[str] = set()
+    for clave in orden:
+        ficha = fichas[clave]
+        etiqueta = ficha["nombre"]
+        if cuenta[etiqueta] > 1:
+            etiqueta = f"{etiqueta} ({ficha['anio'] or '¿?'})"
+            ficha["notas"].append(
+                "Hay más de una persona con este nombre en lo buscado: se "
+                "distingue con el año.")
+            sufijo = 2
+            while etiqueta in usadas:
+                etiqueta = f"{ficha['nombre']} ({ficha['anio'] or '¿?'} #{sufijo})"
+                sufijo += 1
+        usadas.add(etiqueta)
+        etiquetas[clave] = etiqueta
+
+    personas: list[dict] = []
+    for numero, clave in enumerate(orden, 1):
+        ficha = fichas[clave]
+        notas = list(ficha["notas"])
+        papeles = ficha["papeles"]
+        if "padre" in papeles or "madre" in papeles:
+            quien = "Padre" if "padre" in papeles else "Madre"
+            if "bautizado" in papeles:
+                notas.append(f"También sale como {quien.lower()} en las partidas "
+                             f"de sus hijos.")
+            else:
+                notas.append(f"{quien} según las partidas de sus hijos. Su propia "
+                             f"partida: POR BUSCAR.")
+        personas.append({
+            "id": f"AV{numero:03d}",
+            "nombre": etiquetas[clave],
+            "apellido_paterno": ficha["ape1"],
+            "apellido_materno": ficha["ape2"],
+            "nacimiento": {"fecha_aproximada": str(ficha["anio"] or ""),
+                           "municipio": ficha["municipio"],
+                           "provincia": "Alava"},
+            "padre": etiquetas.get(ficha["padre"], ""),
+            "madre": etiquetas.get(ficha["madre"], ""),
+            "hijos": [etiquetas[h] for h in ficha["hijos"]],
+            "notas": " · ".join(notas),
+        })
+    return {"personas": personas}
+
+
+def escribir_informe_familias(recon: dict, base: Path | None = None) -> Path:
+    base = base if base is not None else BASE_DIR
+    ruta = Path(base) / AGENTE_INFORME_FAMILIAS
+    escribir_con_backup(ruta, informe_familias(recon))
+    return ruta
+
+
+def escribir_arbol_json(recon: dict, base: Path | None = None) -> Path:
+    base = base if base is not None else BASE_DIR
+    ruta = Path(base) / AGENTE_ARBOL_JSON
+    escribir_con_backup(ruta, json.dumps(arbol_de_familias(recon),
+                                         ensure_ascii=False, indent=2))
     return ruta

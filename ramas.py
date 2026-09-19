@@ -144,17 +144,96 @@ def _buscador_agente(max_filas: int):
     from config import sin_tildes
 
     def buscar(apellido, tipo="bautismo", anio_ini=None, anio_fin=None,
-               **kwargs):
+               municipio=None, **kwargs):
         filas = artxibo.buscar_sacramentales(
             tipo=tipo, apellido1=apellido, anio_ini=anio_ini,
-            anio_fin=anio_fin, max_filas=max_filas)
+            anio_fin=anio_fin, max_filas=max_filas,
+            municipio=([municipio] if isinstance(municipio, str) and municipio
+                       else municipio))
         if not filas and sin_tildes(apellido) != (apellido or ""):
             filas = artxibo.buscar_sacramentales(
                 tipo=tipo, apellido1=sin_tildes(apellido), anio_ini=anio_ini,
-                anio_fin=anio_fin, max_filas=max_filas)
+                anio_fin=anio_fin, max_filas=max_filas,
+                municipio=([municipio] if isinstance(municipio, str) and municipio
+                           else municipio))
         return filas
 
     return buscar
+
+
+def ejecutar_reconstruir(apellidos: list[str] | None = None,
+                         pueblo: str = "",
+                         rama: str = ramas.RAMA_ALAVA,
+                         base: Path | None = None,
+                         solo_listar: bool = False) -> int:
+    """Opción 1.4: reconstruir las familias de un apellido en una parroquia.
+
+    Es la forma de buscar que se probó a mano: el apellido en los TRES
+    sacramentos, los bautismos agrupados por la pareja de padres (de ahí salen
+    los hermanos) y, al final, la lista de lo que FALTA (parejas sin boda y
+    progenitores sin bautismo), que es lo que merece pedir al archivo.
+    **Gratis**: solo consulta el buscador público y no usa la IA.
+    """
+    from agent import agente_archivo as agente
+    from config import ARTXIBO_MAX_FILAS
+    try:
+        rama = ramas.resolver_rama(rama)
+    except ValueError as e:
+        ui.log_error(str(e))
+        return 1
+    if rama != ramas.RAMA_ALAVA:
+        ui.log_error("La reconstrucción necesita un índice nominal online: hoy "
+                     "solo lo tiene Álava (AHDV, 1481-1900). Para Zamora y "
+                     "Palencia hay que pedir las partidas al archivo.")
+        return 1
+    base = base if base is not None else DIR_PROYECTO
+    ui.cabecera("Familias del archivo vasco (AHDV) — gratis, sin IA")
+    if not apellidos:
+        personas = ramas.personas_de_rama(rama, base=base)
+        apellidos = ramas.apellidos_de_rama(personas, incluir_maternos=True)
+        if apellidos:
+            ui.log("Sin apellido a mano: se cogen los de la línea ("
+                   + ", ".join(apellidos[:6])
+                   + ("..." if len(apellidos) > 6 else "") + ")")
+    if not apellidos:
+        ui.log_error("Hace falta al menos un apellido (--apellido \"Saenz de "
+                     "Navarrete\").")
+        return 1
+    buscar = _buscador_agente(ARTXIBO_MAX_FILAS)
+    informe: Path | None = None
+    arbol: Path | None = None
+    for apellido in apellidos:
+        recon = agente.reconstruir(buscar, apellido,
+                                   municipio=pueblo or None)
+        datos = agente.resumen_familias(recon)
+        ui.log_ok(f"«{apellido}»"
+                  + (f" en {pueblo}" if pueblo else " (toda Álava)")
+                  + f": {datos['familias']} familia(s), {datos['hijos']} "
+                  f"bautismo(s), {datos['bodas']} boda(s), "
+                  f"{datos['defunciones']} defunción(es) · "
+                  f"{datos['anio_min'] or '¿?'}-{datos['anio_max'] or '¿?'}")
+        for familia in recon["familias"][:12]:
+            titulo = " y ".join(p for p in (familia["padre"], familia["madre"])
+                                if p)
+            crios = ", ".join(f"{h['nombre'].split()[0]} {h['anio'] or '¿?'}"
+                              for h in familia["hijos"])
+            ui.log(f"   {titulo}: {crios}")
+        if datos["sin_boda"]:
+            ui.log_warn(f"   {datos['sin_boda']} pareja(s) SIN boda en el índice "
+                        f"(documentos que pedir al archivo)")
+        if datos["sin_bautismo"]:
+            ui.log(f"   {datos['sin_bautismo']} progenitor(es) sin bautismo en "
+                   f"lo buscado (la generación por buscar)")
+        if not solo_listar:
+            informe = agente.escribir_informe_familias(recon, base=base)
+            arbol = agente.escribir_arbol_json(recon, base=base)
+    if solo_listar:
+        ui.log("(--solo-listar: no se ha escrito ningún fichero)")
+        return 0
+    ui.log_ok(f"Informe: {informe}")
+    ui.log(f"Árbol provisional (formato del proyecto): {arbol}")
+    ui.log("(nada de esto se ha escrito en el árbol real: es provisional)")
+    return 0
 
 
 def _abridor_de_fichas():
@@ -510,6 +589,14 @@ def _argumentos(argv: list[str] | None = None) -> argparse.Namespace:
                         "apellido, abriendo las fichas y repitiendo con los "
                         "apellidos de las madres. GASTA unos céntimos de IA; "
                         "también se puede cortar y continuar")
+    p.add_argument("--reconstruir", action="store_true",
+                   help="RECONSTRUYE las familias de un apellido en una "
+                        "parroquia con el índice del archivo vasco: los tres "
+                        "sacramentos, los hermanos agrupados por la pareja de "
+                        "padres y la lista de lo que FALTA pedir. GRATIS (sin IA)")
+    p.add_argument("--pueblo", default="", metavar="MUNICIPIO",
+                   help="con --reconstruir: limita la búsqueda a ese municipio "
+                        "(p. ej. Navaridas). Sin él, toda Álava")
     p.add_argument("--apellido", action="append", default=None, metavar="APELLIDO",
                    help="apellido extra por el que empezar (se puede repetir). "
                         "Útil para arrancar en una línea concreta")
@@ -533,6 +620,10 @@ def _argumentos(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _argumentos(argv)
     _preparar_salida()
+    if args.reconstruir:
+        return ejecutar_reconstruir(args.apellido, pueblo=args.pueblo,
+                                    rama=args.rama,
+                                    solo_listar=args.solo_listar)
     if args.agente_archivo:
         return ejecutar_agente(args.rama, max_llm=args.max_llm,
                                max_consultas=args.max_consultas,
