@@ -782,7 +782,21 @@ ARCHIVOS_CONTACTOS = {
         "tasas": "carnet de sala 5 €; búsqueda/certificación ~6-15 € por "
                  "partida; máx. 5 peticiones por semana",
         "plazo": "15-30 días hábiles",
-        "instrucciones": "Email indicando tipo de partida, localidad, "
+        # URLs VERIFICADAS EN VIVO (2026-09-19): el título de cada página es el
+        # que se cita aquí.
+        "url_tramite": "https://www.archivodiocesanopalencia.es/"
+                       "servicio-de-genealogias/",
+        "url_buscador": "https://www.archivodiocesanopalencia.es/"
+                        "archivo-sacramental-digital/",
+        "url_tasas": "https://www.archivodiocesanopalencia.es/tasas-2-2/",
+        "como_se_pide": "Se rellena el formulario «Solicitud de Partidas "
+                        "Sacramentales y Certificados» de su web (enlace de "
+                        "arriba) o se manda por email a "
+                        "partidas@archivodiocesanopalencia.es indicando tipo "
+                        "de partida, localidad, parroquia, nombre, padres y "
+                        "fecha aproximada. Tienen un buscador propio (ADDO) "
+                        "y una tabla de tasas.",
+        "instrucciones": "Email o formulario con tipo de partida, localidad, "
                          "parroquia, nombre, padres y fecha aproximada.",
     },
     "zamora": {
@@ -798,9 +812,17 @@ ARCHIVOS_CONTACTOS = {
         "tasas": "arancel eclesiástico ~10-25 € según búsqueda y envío "
                  "(consulta presencial gratuita)",
         "plazo": "20-45 días hábiles",
+        # Zamora NO tiene formulario online utilizable (el archivo está cerrado
+        # por obras y su web diocesana no publica página de archivo): la vía
+        # verificada es el email.
+        "url_tramite": "https://www.diocesisdezamora.es/",
+        "como_se_pide": "Por email a secretaria@zamorarte.com (el archivo está "
+                        "cerrado por obras). No hay formulario online: se "
+                        "detalla la persona, la parroquia y el rango de "
+                        "fechas, y el archivero confirma y da la cuenta para "
+                        "la transferencia.",
         "instrucciones": "Email detallando persona, parroquia y rango de "
-                         "fechas; el archivero confirma y da la cuenta para "
-                         "la transferencia.",
+                         "fechas.",
     },
     "alava": {
         "tipo": "diocesano",
@@ -811,11 +833,26 @@ ARCHIVOS_CONTACTOS = {
         "direccion": "Seminario Diocesano, C/ Beato Tomás de Zumárraga 67, "
                      "01008 Vitoria-Gasteiz",
         "horario": "L, J y V con cita previa (tel. 10:00-13:00)",
-        "tasas": "búsqueda online GRATIS (1481-1900 en SIGA/Dokuklik); "
+        "tasas": "búsqueda online GRATIS (1481-1900 en SIGA/artxibo); "
                  "copia certificada ~3-10 €",
         "plazo": "online inmediato; certificados 5-10 días",
-        "instrucciones": "Cita la parroquia, el fondo, la signatura y el "
-                         "folio que salen del buscador (artxibo/SIGA).",
+        # Sistema propio (SIGA): hay que REGISTRARSE como usuario para pedir
+        # copias; se paga online con PayPal y se sigue el estado desde
+        # «Consulta de solicitudes». Verificado en vivo el 2026-09-19.
+        "url_tramite": "http://internet.ahdv-geah.org/paginas/portada/"
+                       "n_portada.php",
+        "url_buscador": "https://www.artxibo.euskadi.eus/webartxi00-container"
+                        "/es/ad53aArchivoHistoricoWar/sacramentales/"
+                        "maintSimple?locale=es",
+        "web": "https://ahdv-geah.org/",
+        "como_se_pide": "En la web del archivo (CONSULTAS Y SERVICIOS) hay que "
+                        "REGISTRARSE como usuario; desde ahí se crea la "
+                        "solicitud de copia, se paga online con PayPal y se "
+                        "sigue el estado en «Consulta de solicitudes». Se "
+                        "puede citar la signatura y el folio que da el "
+                        "buscador para que sea reproducción y no búsqueda.",
+        "instrucciones": "Cita la parroquia, el fondo, la signatura y el folio "
+                         "que salen del buscador (artxibo/SIGA).",
     },
     "burgos": {
         "tipo": "diocesano",
@@ -826,6 +863,9 @@ ARCHIVOS_CONTACTOS = {
         "horario": "L-V 09:30-14:00 (cerrado en agosto)",
         "tasas": "~10-20 € según localización del tomo",
         "plazo": "15-30 días hábiles",
+        "url_tramite": "https://www.archiburgos.es/",
+        "como_se_pide": "Por email a archivo@archiburgos.es con los datos "
+                        "filiativos y la parroquia.",
     },
     "valladolid": {
         "tipo": "diocesano",
@@ -837,6 +877,9 @@ ARCHIVOS_CONTACTOS = {
         "tasas": "búsqueda 10 €; partida anterior a 1800: 20 €; certificación "
                  "de más de 100 años: 15 €; legalización 5 €",
         "plazo": "10-20 días hábiles",
+        "url_tramite": "https://www.archivogeneraldiocesano-va.com/",
+        "como_se_pide": "Formulario de su web o email directo a "
+                        "archivodiocesano@archivalladolid.org.",
     },
     "leon": {
         "tipo": "diocesano",
@@ -847,6 +890,9 @@ ARCHIVOS_CONTACTOS = {
         "horario": "L-V 10:30-13:30 (cerrado en agosto)",
         "tasas": "~10-15 € por partida",
         "plazo": "20-30 días hábiles",
+        "url_tramite": "https://www.diocesisdeleon.org/",
+        "como_se_pide": "Por email a archivodiocesano@diocesisdeleon.org "
+                        "detallando municipio y parroquia.",
     },
 }
 ARCHIVOS_CONTACTOS["araba"] = ARCHIVOS_CONTACTOS["alava"]
@@ -864,6 +910,13 @@ REGISTRO_CIVIL_CONTACTOS = {
         "direccion": "C/ Cueva de la Virgen 3, 34840 Cervera de Pisuerga "
                      "(Palencia)",
         "tasas": "GRATIS (0 €)",
+        # Castilla y León usa la sede electrónica del Ministerio de Justicia.
+        "url_tramite": "https://sede.mjusticia.gob.es/es/tramites/"
+                       "certificado-nacimiento",
+        "como_se_pide": "Sede Electrónica del Ministerio de Justicia "
+                        "(certificado de nacimiento, gratis; se puede pedir "
+                        "con Cl@ve o sin certificado) o email al registro "
+                        "adjuntando el DNI.",
     },
     "coreses": {
         "municipio": "Coreses",
@@ -874,6 +927,11 @@ REGISTRO_CIVIL_CONTACTOS = {
         "telefono": "980 55 94 53",
         "direccion": "C/ Riego 5, 49004 Zamora",
         "tasas": "GRATIS (0 €)",
+        "url_tramite": "https://sede.mjusticia.gob.es/es/tramites/"
+                       "certificado-nacimiento",
+        "como_se_pide": "Sede Electrónica del Ministerio de Justicia "
+                        "(gratis) indicando que el hecho ocurrió en el "
+                        "término municipal de Coreses, o email al registro.",
     },
     "pobladura del valle": {
         "municipio": "Pobladura del Valle",
@@ -884,6 +942,11 @@ REGISTRO_CIVIL_CONTACTOS = {
         "telefono": "980 63 50 71 / 980 63 04 89",
         "direccion": "Plaza de San Francisco 4, 49600 Benavente (Zamora)",
         "tasas": "GRATIS (0 €)",
+        "url_tramite": "https://sede.mjusticia.gob.es/es/tramites/"
+                       "certificado-nacimiento",
+        "como_se_pide": "Sede Electrónica del Ministerio de Justicia "
+                        "(gratis) detallando que el acta es de Pobladura del "
+                        "Valle, o email al registro.",
     },
     "vitoria": {
         "municipio": "Vitoria-Gasteiz",
@@ -893,6 +956,16 @@ REGISTRO_CIVIL_CONTACTOS = {
         "telefono": "945 004 879",
         "direccion": "Avda. de Gasteiz 18, 01008 Vitoria-Gasteiz (Álava)",
         "tasas": "GRATIS (0 €)",
+        # Euskadi tiene su PROPIA sede (no la del Ministerio). Verificado.
+        "url_tramite": "https://www.justizia.eus/certificados-e-inscripciones/"
+                       "webjus00-contentgen/es/",
+        "url_sede": "https://egoitza.justizia.eus/sede/registro-civil/"
+                    "webjus01-contentgen/es/",
+        "como_se_pide": "En «Certificados e inscripciones» del portal de "
+                        "Justicia del Gobierno Vasco (o en su sede "
+                        "electrónica) se pide la certificación; el certificado "
+                        "literal de nacimiento es GRATIS. También por email "
+                        "(adjuntando DNI).",
     },
 }
 REGISTRO_CIVIL_CONTACTOS["vitoria-gasteiz"] = REGISTRO_CIVIL_CONTACTOS["vitoria"]

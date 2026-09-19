@@ -409,6 +409,76 @@ def test_cartas_marcan_los_anos_estimados(base):
     assert "(estimado)" not in obdulia["cuerpo"]
 
 
+def test_cada_solicitud_dice_donde_se_pide(base):
+    """Cada archivo se pide de una manera: la solicitud tiene que llevar SU
+    enlace y SUS instrucciones (es lo que el usuario necesita para enviarla)."""
+    de_alava = ramas.solicitudes_de_rama(
+        ramas.RAMA_ALAVA,
+        ramas.personas_de_rama(ramas.RAMA_ALAVA, base=base),
+        analisis=[{"fila": f,
+                   "persona": _persona(base, "Victor Saenz de Navarrete Dopico"),
+                   "evaluacion": ramas.evaluar_compatibilidad(
+                       f, _persona(base, "Victor Saenz de Navarrete Dopico"))}
+                  for f in [f for f in _filas(
+                      "artxibo_busqueda_bautismo_apellido_compuesto.json")
+                      if f["id"] == 6210597]])
+    assert len(de_alava) == 1
+    assert de_alava[0]["url_tramite"].startswith("http")
+    assert "ahdv-geah" in de_alava[0]["url_tramite"]      # su sistema (SIGA)
+    assert "REGISTRARSE" in de_alava[0]["como_se_pide"]
+    # y la ficha concreta de la que se pide la copia va en el cuerpo
+    assert "getFicha?bauid=6210597" in de_alava[0]["cuerpo"]
+
+    de_zamora = ramas.solicitudes_de_rama(
+        ramas.RAMA_ZAMORA,
+        ramas.personas_de_rama(ramas.RAMA_ZAMORA, base=base))
+    civil = [s for s in de_zamora if s["tipo"] == "certificado_nacimiento_civil"]
+    assert civil and all("sede.mjusticia.gob.es" in s["url_tramite"]
+                         for s in civil)
+
+    de_palencia = ramas.solicitudes_de_rama(
+        ramas.RAMA_PALENCIA,
+        ramas.personas_de_rama(ramas.RAMA_PALENCIA, base=base))
+    diocesanas = [s for s in de_palencia
+                  if s["tipo"] == "copia_literal_diocesana"]
+    assert diocesanas
+    assert all("archivodiocesanopalencia.es" in s["url_tramite"]
+               for s in diocesanas)
+    assert all(s["como_se_pide"] for s in de_palencia + de_zamora + de_alava)
+
+
+def test_el_informe_enseña_los_enlaces(base):
+    from ramas import ejecutar
+    assert ejecutar(ramas.RAMA_PALENCIA, base=base) == 0
+    informe = (base / "solicitudes_rama_palencia.md").read_text(encoding="utf-8")
+    assert "### Dónde se pide (enlaces verificados)" in informe
+    assert "https://www.archivodiocesanopalencia.es/servicio-de-genealogias/" \
+        in informe
+    assert "https://sede.mjusticia.gob.es/es/tramites/certificado-nacimiento" \
+        in informe
+    assert "**Dónde se pide**" in informe and "**Cómo**" in informe
+
+
+def test_los_enlaces_de_config_son_los_verificados():
+    """Los enlaces son los comprobados en vivo el 2026-09-19 (títulos de las
+    páginas verificados): si alguien los cambia, que sea a conciencia."""
+    from config import ARCHIVOS_CONTACTOS, REGISTRO_CIVIL_CONTACTOS
+    assert ARCHIVOS_CONTACTOS["alava"]["url_tramite"].startswith(
+        "http://internet.ahdv-geah.org/")
+    assert ARCHIVOS_CONTACTOS["palencia"]["url_tramite"] == (
+        "https://www.archivodiocesanopalencia.es/servicio-de-genealogias/")
+    assert ARCHIVOS_CONTACTOS["zamora"]["url_tramite"].startswith(
+        "https://www.diocesisdezamora.es")
+    assert REGISTRO_CIVIL_CONTACTOS["vitoria"]["url_tramite"].startswith(
+        "https://www.justizia.eus/")
+    assert REGISTRO_CIVIL_CONTACTOS["pobladura del valle"]["url_tramite"] == (
+        "https://sede.mjusticia.gob.es/es/tramites/certificado-nacimiento")
+    for datos in list(ARCHIVOS_CONTACTOS.values()) + \
+            list(REGISTRO_CIVIL_CONTACTOS.values()):
+        assert datos.get("url_tramite", "").startswith("http")
+        assert datos.get("como_se_pide")
+
+
 # ================== REGISTRO EN estado_investigacion.json ==================
 
 def test_registrar_escribe_estado_con_bak_y_no_pierde_la_frontera(base):

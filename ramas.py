@@ -161,7 +161,9 @@ def ejecutar(rama: str, solo_listar: bool = False,
     else:
         ui.log_ok(f"{len(solicitudes)} solicitud(es) redactada(s):")
         for sol in solicitudes:
-            ui.log(f"   - {sol['tipo']} · {sol['persona']} · {sol['contacto']}")
+            ui.log(f"   - {sol['tipo']} · {sol['persona']}")
+            ui.log(f"       se pide en: {sol.get('url_tramite') or '(email)'}"
+                   f"  ·  {sol['contacto']}")
 
     if solo_listar:
         ui.log("(modo --solo-listar: NO se ha escrito nada)")

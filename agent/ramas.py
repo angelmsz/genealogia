@@ -424,11 +424,15 @@ def _fecha_hoy() -> str:
 
 def _solicitud(rama: str, persona: str, archivo: str, contacto: str,
                tipo: str, referencia: str, asunto: str, cuerpo: str,
-               notas: str = "") -> dict:
+               notas: str = "", url_tramite: str = "",
+               como_se_pide: str = "") -> dict:
     return {"fecha": _fecha_hoy(), "via": "email", "persona": persona,
             "archivo": archivo, "contacto": contacto, "rama": rama,
             "tipo": tipo, "referencia": referencia, "estado": ESTADO_PENDIENTE,
-            "asunto": asunto, "cuerpo": cuerpo, "notas": notas}
+            "asunto": asunto, "cuerpo": cuerpo, "notas": notas,
+            # DÓNDE se pide (verificado en vivo): cada archivo tiene su método
+            # (formulario propio, sede electrónica o email).
+            "url_tramite": url_tramite, "como_se_pide": como_se_pide}
 
 
 def _rotulo_anio(persona: dict) -> str:
@@ -550,7 +554,9 @@ def carta_al_ahdv(fila: dict, persona: dict) -> dict:
                   if _coincide_el_nombre(fila, persona) else
                   "OJO: coinciden los apellidos y la fecha, pero el nombre de "
                   "pila es distinto (probable hermano: pedir esta copia solo "
-                  "si la del nombre exacto no aparece)")))
+                  "si la del nombre exacto no aparece)")),
+        url_tramite=datos.get("url_tramite", ""),
+        como_se_pide=datos.get("como_se_pide", ""))
 
 
 def solicitudes_de_rama(rama: str, personas: list[dict],
@@ -595,7 +601,9 @@ def solicitudes_de_rama(rama: str, personas: list[dict],
                 f"Solicitud de partida ({persona.get('municipio')}) — "
                 f"{persona['nombre']}",
                 _carta_diocesana(persona, datos, tipo),
-                notas=datos.get("aviso", "")))
+                notas=datos.get("aviso", ""),
+                url_tramite=datos.get("url_tramite", ""),
+                como_se_pide=datos.get("como_se_pide", "")))
         if persona.get("anio") and persona["anio"] >= 1871 and \
                 not persona.get("anio_estimado"):
             # Solo se pide el certificado GRATUITO del Registro Civil cuando el
@@ -611,7 +619,9 @@ def solicitudes_de_rama(rama: str, personas: list[dict],
                     f"{persona['nombre']}",
                     _carta_civil(persona, civil),
                     notas=f"{civil.get('tasas', 'GRATIS')}; "
-                          f"juzgado de paz: {civil.get('juzgado_paz', '—')}"))
+                          f"juzgado de paz: {civil.get('juzgado_paz', '—')}",
+                    url_tramite=civil.get("url_tramite", ""),
+                    como_se_pide=civil.get("como_se_pide", "")))
         if len(solicitudes) >= MAX_SOLICITUDES:
             break
     return solicitudes[:MAX_SOLICITUDES]
@@ -728,8 +738,30 @@ def redactar_markdown(rama: str, personas: list[dict],
         lineas += [f"## Solicitudes a enviar ({len(solicitudes)})", "",
                    "Estado: **pendiente_envio**. Ya registradas en "
                    f"`{ESTADO_PATH}`.", ""]
+        # DÓNDE se pide cada cosa: cada archivo tiene su método. Se agrupa por
+        # sitio para que no haya que buscarlo veinte veces.
+        sitios: dict[str, dict] = {}
+        for sol in solicitudes:
+            clave = sol["archivo"]
+            sitios.setdefault(clave, {"url_tramite": sol.get("url_tramite", ""),
+                                      "contacto": sol["contacto"],
+                                      "como_se_pide": sol.get("como_se_pide", ""),
+                                      "cuantas": 0})
+            sitios[clave]["cuantas"] += 1
+        lineas += ["### Dónde se pide (enlaces verificados)", "",
+                   "| Archivo | Cuántas | Enlace para pedir | Cómo |",
+                   "|---|---:|---|---|"]
+        for archivo, datos_sitio in sitios.items():
+            enlace = (f"[abrir]({datos_sitio['url_tramite']})"
+                      if datos_sitio["url_tramite"] else "—")
+            como = datos_sitio["como_se_pide"] or f"email a {datos_sitio['contacto']}"
+            lineas.append(f"| {archivo} | {datos_sitio['cuantas']} | {enlace} | "
+                          f"{como} |")
+        lineas.append("")
         for i, sol in enumerate(solicitudes, 1):
             lineas += [f"### {i}. {sol['tipo']} — {sol['persona']}",
+                       f"- **Dónde se pide**: {sol.get('url_tramite') or '(por email)'}",
+                       f"- **Cómo**: {sol.get('como_se_pide') or 'por email'}",
                        f"- **Para**: {sol['contacto']}",
                        f"- **Archivo**: {sol['archivo']}",
                        f"- **Asunto**: {sol['asunto']}",
