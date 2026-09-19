@@ -82,36 +82,167 @@ FICHEROS_VIGILADOS = (
     "registro_confirmaciones.jsonl",  # --aceptar
 )
 # Orden en que se pintan las opciones (0 = salir, fuera de la lista).
-ORDEN_OPCIONES = ("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
-                  "12", "13", "14", "15")
-# Comandos avanzados que se quedan FUERA del menú a propósito: la opción 15 solo
-# los enseña (con su aviso de si gastan o no) para no tener que recordarlos.
+# v10.4.2 (BLOQUE 3) — MENÚ POR RAMAS FAMILIARES: de 15 opciones + 0 a 9 + 0.
+# NADA se ha borrado: lo que no cabe en el menú principal vive en un submenú
+# (cada opción de 3 a 9 abre el suyo) o en la chuleta de comandos (9.4).
+ORDEN_OPCIONES = ("1", "2", "3", "4", "5", "6", "7", "8", "9")
+# Comandos avanzados que se quedan FUERA del menú a propósito: la opción 9.4
+# solo los enseña (con su aviso de si gastan o no) para no tener que
+# recordarlos. Donde se solapan con el menú, se dice en su descripción.
 CHULETA_AVANZADOS = (
     ("--solicitudes",
-     "genera las solicitudes de partidas (solicitudes.json + .md): para pedir "
-     "por escrito lo que no está online. No gasta nada."),
+     "genera las solicitudes de partidas del árbol (solicitudes.json + .md): "
+     "para pedir por escrito lo que no está online. En el menú: 8.1 "
+     "(por ramas: 1 y 2). No gasta nada."),
     ("--importar-propios",
      "transcribe las fotos de documentos_propios/ con el OCR 100% LOCAL y las "
-     "añade al corpus. No gasta nada."),
+     "añade al corpus. En el menú: 5.2. No gasta nada."),
     ("--reclasificar",
      "vuelve a clasificar el árbol ya guardado con el clasificador "
-     "determinista de evidencia. No gasta ni un token."),
+     "determinista de evidencia. En el menú: 4.3. No gasta ni un token."),
     ("--ensenada",
      "busca los municipios del árbol en el Catastro de Ensenada (1752) y "
-     "escribe candidatos_ensenada.json. Gasta algo de LLM."),
+     "escribe candidatos_ensenada.json. En el menú: 8.2. Gasta algo de LLM."),
     ("--probar-conectores",
-     "comprueba en vivo SIGA (Álava), ADDO (Palencia) y PARES. No gasta "
-     "tokens, pero usa la red."),
+     "comprueba en vivo SIGA (Álava), artxibo, ADDO (Palencia) y PARES. En el "
+     "menú: 6.2. No gasta tokens, pero usa la red."),
     ("--fase 2 --sin-cache",
      "repite la extracción de hallazgos aunque esté en caché: es la forma de "
-     "recuperar fragmentos que una versión anterior guardó como vacíos. "
-     "GASTA (vuelve a extraer todo el corpus)."),
+     "recuperar fragmentos que una versión anterior guardó como vacíos. En el "
+     "menú: 9.3. GASTA (vuelve a extraer todo el corpus)."),
     ("--limpiar-cache-hallazgos",
-     "borra del caché de extracción SOLO las filas sospechosas (sin hallazgos y "
-     "sin marca de vacío legítimo: las que dejó la versión anterior al fallar un "
-     "lote), para que la fase 2 vuelva a extraerlas. Pide confirmación y deja "
-     "cache_agente.db.bak. No gasta."),
+     "borra del caché de extracción SOLO las filas sospechosas (sin hallazgos "
+     "y sin marca de vacío legítimo), para que la fase 2 vuelva a extraerlas. "
+     "En el menú: 8.3. Pide confirmación y deja cache_agente.db.bak."),
+    ("--fase all",
+     "fase 1 y fase 2 seguidas en una sola orden (es lo que hace el autopiloto "
+     "de 3.3 sin repetir ciclos). GASTA dinero."),
+    ("--probar-ocr RUTA --manuscrito",
+     "OCR de una partida parroquial concreta (letra antigua). En el menú: 5.1, "
+     "que pregunta lo del manuscrito. No gasta."),
+    ("--probar-ocr RUTA --sin-cache",
+     "repite el OCR de un documento aunque esté en caché (para comparar una "
+     "mejora del OCR). En el menú: 5.1, que pregunta lo de la caché."),
 )
+# Submenús: la opción N del menú principal abre estas. Así el menú de arriba
+# son 9 líneas, pero no se pierde ninguna función.
+SUBMENUS = {
+    "3": {
+        "titulo": "Investigar",
+        "opciones": {
+            "1": ("--fase 1 (solo búsqueda)",
+                  "corpus nuevo desde la web con Tavily + LLM (GASTA dinero)"),
+            "2": ("--fase 2",
+                  "extrae y consolida hallazgos (GASTA dinero)"),
+            "3": ("--ciclo N (autopiloto)",
+                  "N ciclos: fase 1 -> fase 2 -> commit -> frontera "
+                  "(GASTA dinero)"),
+            "4": ('--personas "A,B"',
+                  "investiga SOLO a esas personas, fase 1 + 2 (GASTA dinero)"),
+            "5": ("resumen de la última tanda",
+                  "resumen_noche.py: resumen offline de lo que ha dejado la "
+                  "noche (no gasta)"),
+        },
+    },
+    "4": {
+        "titulo": "Árbol y cola de investigación",
+        "opciones": {
+            "1": ("--frontera",
+                  "cola priorizada de investigación (no gasta)"),
+            "2": ("--aceptar",
+                  "commit al árbol de lo verificado (modifica estado)"),
+            "3": ("--reclasificar",
+                  "vuelve a clasificar el árbol guardado, sin gastar tokens"),
+        },
+    },
+    "5": {
+        "titulo": "OCR local (documentos propios)",
+        "opciones": {
+            "1": ("--probar-ocr (un PDF tuyo)",
+                  "prueba el OCR local con UN PDF (no gasta)"),
+            "2": ("--importar-propios",
+                  "transcribe documentos_propios/ y lo añade al corpus "
+                  "(OCR local, no gasta)"),
+        },
+    },
+    "6": {
+        "titulo": "Diagnóstico",
+        "opciones": {
+            "1": ("--diagnostico",
+                  "modelos, precios, conectores y cachés (0 tokens)"),
+            "2": ("--probar-conectores",
+                  "comprueba EN VIVO SIGA, artxibo, ADDO y PARES (red, 0 "
+                  "tokens)"),
+            "3": ("estado de dependencias",
+                  "qué paquetes le faltan al intérprete elegido"),
+        },
+    },
+    "7": {
+        "titulo": "Git y tests",
+        "opciones": {
+            "1": ("git pull",
+                  "traer los últimos commits (solo si el árbol está limpio)"),
+            "2": ("pytest",
+                  "la suite completa de tests (no gasta tokens)"),
+        },
+    },
+    "8": {
+        "titulo": "Trámites y cachés",
+        "opciones": {
+            "1": ("--solicitudes",
+                  "solicitudes de partidas del árbol (solicitudes.json + .md); "
+                  "no gasta"),
+            "2": ("--ensenada",
+                  "Catastro de Ensenada (1752) de los municipios del árbol "
+                  "(GASTA algo de LLM)"),
+            "3": ("--limpiar-cache-hallazgos",
+                  "borra del caché SOLO las filas sospechosas, para que la "
+                  "fase 2 vuelva a extraerlas (deja .bak; no gasta)"),
+        },
+    },
+    "9": {
+        "titulo": "Mantenimiento",
+        "opciones": {
+            "1": ("ver último log",
+                  "rabo del log más reciente de logs/"),
+            "2": ("instalar fonttools",
+                  "pip install fonttools (no está en requirements.txt)"),
+            "3": ("--fase 2 --sin-cache",
+                  "repite la extracción de hallazgos ignorando la caché "
+                  "(GASTA dinero)"),
+            "4": ("chuleta de comandos avanzados",
+                  "los comandos que NO están en el menú, para copiar y pegar "
+                  "(no ejecuta nada)"),
+        },
+    },
+}
+# El menú: número -> (etiqueta, descripción). Fuente única de verdad para
+# pintar el menú, despachar y testear.
+OPCIONES: dict[str, tuple[str, str]] = {
+    "1": ("Abuelos paternos (Álava/Vitoria)",
+          "busca la rama paterna en el índice del AHDV (artxibo), la coteja "
+          "con el árbol (regla de ≥2 datos) y redacta las solicitudes de copia "
+          "literal (red + escribe estado)"),
+    "2": ("Abuelos maternos (Palencia/Zamora)",
+          "redacta las solicitudes a los archivos diocesanos y los "
+          "certificados gratuitos del Registro Civil de esa rama (no usa la "
+          "red; escribe estado)"),
+    "3": ("Investigar",
+          "fase 1, fase 2, autopiloto o personas concretas"),
+    "4": ("Árbol y cola",
+          "frontera, aceptar lo verificado, reclasificar"),
+    "5": ("OCR local",
+          "probar un PDF tuyo e importar documentos_propios/"),
+    "6": ("Diagnóstico",
+          "modelos, precios, conectores y dependencias"),
+    "7": ("Git y tests",
+          "traer cambios y pasar la suite"),
+    "8": ("Trámites y cachés",
+          "solicitudes, Catastro de Ensenada y caché de hallazgos"),
+    "9": ("Mantenimiento",
+          "log, fonttools, repetir fase 2 y chuleta de comandos"),
+    "0": ("Salir", ""),
+}
 CANDIDATOS_INTERPRETE = (
     Path(".venv") / "Scripts" / "python.exe",   # Windows
     Path(".venv") / "bin" / "python",           # Linux/macOS
@@ -134,41 +265,8 @@ PAQUETES = (
 
 # El menú: número -> (etiqueta, descripción). Fuente única de verdad para
 # pintar el menú, despachar y testear.
-OPCIONES: dict[str, tuple[str, str]] = {
-    "1": ("git pull",
-          "traer los últimos commits (solo si el árbol está limpio)"),
-    "2": ("pytest",
-          "la suite completa de tests (no gasta tokens)"),
-    "3": ("--diagnostico",
-          "modelos, precios, conectores y cachés (0 tokens)"),
-    "4": ("--fase 2 --presupuesto-max 0.5",
-          "extrae y consolida hallazgos (GASTA dinero)"),
-    "5": ("--aceptar",
-          "commit al árbol de lo verificado (modifica estado)"),
-    "6": ("--frontera",
-          "cola priorizada de investigación (no gasta)"),
-    "7": ("resumen_noche.py",
-          "resumen offline de la última tanda (no gasta)"),
-    "8": ("--probar-ocr",
-          "prueba el OCR local con UN PDF tuyo (no gasta)"),
-    "9": ("estado dependencias",
-          "qué paquetes le faltan al intérprete elegido"),
-    "10": ("instalar fonttools",
-           "pip install fonttools (no está en requirements.txt)"),
-    "11": ("ver último log",
-           "rabo del log más reciente de logs/"),
-    "12": ("--ciclo N (autopiloto)",
-           "N ciclos completos: fase 1 -> fase 2 -> commit -> frontera "
-           "(GASTA dinero)"),
-    "13": ("--fase 1 (solo búsqueda)",
-           "corpus nuevo desde la web con Tavily + LLM (GASTA dinero)"),
-    "14": ('--personas "A,B"',
-           "investiga SOLO a esas personas (fase 1 + fase 2; GASTA dinero)"),
-    "15": ("chuleta de comandos avanzados",
-           "los comandos que NO están en el menú, para copiar y pegar "
-           "(no ejecuta nada)"),
-    "0": ("Salir", ""),
-}
+# (La tabla está ARRIBA, junto a SUBMENUS: aquí solo queda el aviso de que no
+#  se define dos veces.)
 
 # Código que se ejecuta en el intérprete ELEGIDO para el estado de dependencias
 # (así informa del python que de verdad corre el bot, no del que corre al menú).
@@ -961,12 +1059,160 @@ def accion_ultimo_log(interprete: str, sin_log: bool = False) -> int:
     return 0
 
 
+def _lanzar_escribiendo(argv: list[str], *, opcion: str, descripcion: str,
+                        sin_log: bool = False, aviso: str = "") -> int:
+    """Como `_lanzar_gastando` pero SIN hablar de dinero: para las acciones que
+    escriben estado, usan la red o tocan el árbol sin gastar tokens.
+
+    La confirmación es la misma de siempre (s/n, Enter = n): el usuario nunca
+    se encuentra una acción que cambia cosas sin haber dicho que sí.
+    """
+    print(f"\n  Comando exacto: {mostrar_argv(argv)}")
+    if aviso:
+        print(f"  {aviso}")
+    if not _confirmar("  ¿Continuar? (s/n, Enter = n):"):
+        print("  Cancelado: no se ha hecho nada.")
+        return 0
+    return _ejecutar_con_resumen(argv, opcion=opcion, descripcion=descripcion,
+                                 sin_log=sin_log)
+
+
+def accion_rama_paterna(interprete: str, sin_log: bool = False) -> int:
+    """Opción 1: rama paterna (Álava/Vitoria).
+
+    Busca en el índice del AHDV (artxibo, red pública y gratuita), coteja lo
+    encontrado con el árbol con la regla de ≥2 datos y redacta las solicitudes
+    de copia literal. Escribe el informe y el estado: se confirma antes.
+    """
+    return _lanzar_escribiendo(
+        [interprete, "ramas.py", "--rama", "paterna"], opcion="1",
+        descripcion="rama paterna (Álava/Vitoria)", sin_log=sin_log,
+        aviso="(usa el portal público del AHDV y escribe el informe y las "
+              "solicitudes en estado_investigacion.json, con .bak previo)")
+
+
+def accion_rama_materna(interprete: str, sin_log: bool = False) -> int:
+    """Opción 2: rama materna (Palencia/Zamora). No usa la red: redacta las
+    cartas diocesanas y los certificados gratis del Registro Civil."""
+    return _lanzar_escribiendo(
+        [interprete, "ramas.py", "--rama", "materna"], opcion="2",
+        descripcion="rama materna (Palencia/Zamora)", sin_log=sin_log,
+        aviso="(no usa la red: redacta las cartas y las apunta en "
+              "estado_investigacion.json, con .bak previo)")
+
+
+def accion_solicitudes(interprete: str, sin_log: bool = False) -> int:
+    """Opción 8.1: --solicitudes del árbol (solicitudes.json + .md)."""
+    return _lanzar_escribiendo(
+        [interprete, "main.py", "--solicitudes"], opcion="8.1",
+        descripcion="main.py --solicitudes", sin_log=sin_log,
+        aviso="(escribe solicitudes.json y solicitudes.md; no gasta)")
+
+
+def accion_ensenada(interprete: str, sin_log: bool = False) -> int:
+    """Opción 8.2: Catastro de Ensenada (gasta algo de LLM)."""
+    return _lanzar_gastando(
+        [interprete, "main.py", "--ensenada"], opcion="8.2",
+        descripcion="main.py --ensenada", sin_log=sin_log,
+        aviso="(Ensenada solo tiene las Respuestas GENERALES en PARES: esto "
+              "deja candidatos, no partidas)")
+
+
+def accion_limpiar_cache(interprete: str, sin_log: bool = False) -> int:
+    """Opción 8.3: --limpiar-cache-hallazgos.
+
+    El menú pregunta una vez (Enter = n) y pasa `-y` al bot para no preguntar
+    dos veces por lo mismo: la decisión la ha tomado el usuario AQUÍ.
+    """
+    argv = [interprete, "main.py", "--limpiar-cache-hallazgos", "-y"]
+    print(f"\n  Comando exacto: {mostrar_argv(argv)}")
+    print("  (borra del caché de extracción SOLO las filas sospechosas —las "
+          "que quedaron sin hallazgos y sin marca de vacío legítimo— para que "
+          "la fase 2 vuelva a extraerlas; deja cache_agente.db.bak)")
+    if not _confirmar("  ¿Limpiar esas filas del caché? (s/n, Enter = n):"):
+        print("  Cancelado: el caché no se ha tocado.")
+        return 0
+    return _ejecutar_con_resumen(argv, opcion="8.3",
+                                 descripcion="limpiar caché de hallazgos",
+                                 sin_log=sin_log)
+
+
+def accion_importar_propios(interprete: str, sin_log: bool = False) -> int:
+    """Opción 5.2: --importar-propios (OCR local de documentos_propios/)."""
+    return _lanzar_escribiendo(
+        [interprete, "main.py", "--importar-propios"], opcion="5.2",
+        descripcion="main.py --importar-propios", sin_log=sin_log,
+        aviso="(OCR 100% local de documentos_propios/: no manda nada fuera "
+              "del equipo)")
+
+
+def accion_probar_conectores(interprete: str, sin_log: bool = False) -> int:
+    """Opción 6.2: --probar-conectores (red viva, 0 tokens)."""
+    return _lanzar_escribiendo(
+        [interprete, "main.py", "--probar-conectores"], opcion="6.2",
+        descripcion="main.py --probar-conectores", sin_log=sin_log,
+        aviso="(usa la red: SIGA, artxibo, ADDO y PARES; no gasta tokens)")
+
+
+def accion_reclasificar(interprete: str, sin_log: bool = False) -> int:
+    """Opción 4.3: --reclasificar (determinista, 0 tokens). Reescribe el árbol
+    guardado, así que se confirma."""
+    return _lanzar_escribiendo(
+        [interprete, "main.py", "--reclasificar"], opcion="4.3",
+        descripcion="main.py --reclasificar", sin_log=sin_log,
+        aviso="(reescribe el árbol guardado con el clasificador determinista; "
+              "no gasta ni un token)")
+
+
+def accion_fase2_sin_cache(interprete: str, sin_log: bool = False) -> int:
+    """Opción 9.3: fase 2 con --sin-cache (GASTA: vuelve a extraerlo todo)."""
+    valor = _pedir_presupuesto()
+    if valor is None:
+        return 0
+    argv = [interprete, "main.py", "--fase", "2", "--sin-cache",
+            "--presupuesto-max", f"{valor:g}"]
+    return _lanzar_gastando(
+        argv, opcion="9.3",
+        descripcion=f"fase 2 --sin-cache (presupuesto ${valor:g})",
+        sin_log=sin_log,
+        aviso="(ignora la caché de extracción: vuelve a pasar el corpus "
+              "entero por el LLM, es la opción más cara del menú)")
+
+
 ACCIONES = {
-    "1": accion_git_pull, "2": accion_pytest, "3": accion_diagnostico,
-    "4": accion_fase2, "5": accion_aceptar, "6": accion_frontera,
-    "7": accion_resumen, "8": accion_probar_ocr, "9": accion_dependencias,
-    "10": accion_fonttools, "11": accion_ultimo_log, "12": accion_ciclo,
-    "13": accion_fase1, "14": accion_personas, "15": accion_chuleta,
+    # Opciones de primer nivel que hacen algo directamente
+    "1": accion_rama_paterna, "2": accion_rama_materna,
+    # Submenú 3 — Investigar
+    "3.1": accion_fase1, "3.2": accion_fase2, "3.3": accion_ciclo,
+    "3.4": accion_personas, "3.5": accion_resumen,
+    # Submenú 4 — Árbol y cola
+    "4.1": accion_frontera, "4.2": accion_aceptar, "4.3": accion_reclasificar,
+    # Submenú 5 — OCR local
+    "5.1": accion_probar_ocr, "5.2": accion_importar_propios,
+    # Submenú 6 — Diagnóstico
+    "6.1": accion_diagnostico, "6.2": accion_probar_conectores,
+    "6.3": accion_dependencias,
+    # Submenú 7 — Git y tests
+    "7.1": accion_git_pull, "7.2": accion_pytest,
+    # Submenú 8 — Trámites y cachés
+    "8.1": accion_solicitudes, "8.2": accion_ensenada,
+    "8.3": accion_limpiar_cache,
+    # Submenú 9 — Mantenimiento
+    "9.1": accion_ultimo_log, "9.2": accion_fonttools,
+    "9.3": accion_fase2_sin_cache, "9.4": accion_chuleta,
+}
+# Qué opción hay que pulsar para llegar a cada acción (para el mensaje de
+# opción no reconocida y para los tests de cobertura).
+ETIQUETA_ACCION = {
+    "1": "1", "2": "2",
+    "3.1": "3 -> 1", "3.2": "3 -> 2", "3.3": "3 -> 3", "3.4": "3 -> 4",
+    "3.5": "3 -> 5",
+    "4.1": "4 -> 1", "4.2": "4 -> 2", "4.3": "4 -> 3",
+    "5.1": "5 -> 1", "5.2": "5 -> 2",
+    "6.1": "6 -> 1", "6.2": "6 -> 2", "6.3": "6 -> 3",
+    "7.1": "7 -> 1", "7.2": "7 -> 2",
+    "8.1": "8 -> 1", "8.2": "8 -> 2", "8.3": "8 -> 3",
+    "9.1": "9 -> 1", "9.2": "9 -> 2", "9.3": "9 -> 3", "9.4": "9 -> 4",
 }
 
 
@@ -978,7 +1224,8 @@ def _pintar_menu(version: str, interprete: str) -> None:
     print("=" * 62)
     for numero in ORDEN_OPCIONES:
         etiqueta, descripcion = OPCIONES[numero]
-        print(f" {numero:>2}. {etiqueta}")
+        marca = " ‹abre submenú›" if numero in SUBMENUS else ""
+        print(f" {numero:>2}. {etiqueta}{marca}")
         print(f"     {descripcion}")
     print(f"  0. {OPCIONES['0'][0]}")
     print("-" * 62)
@@ -987,7 +1234,49 @@ def _pintar_menu(version: str, interprete: str) -> None:
     print("=" * 62)
 
 
+def _pintar_submenu(numero: str) -> None:
+    datos = SUBMENUS[numero]
+    print("-" * 62)
+    print(f" {numero}. {datos['titulo']}")
+    print("-" * 62)
+    for sub, (etiqueta, descripcion) in datos["opciones"].items():
+        print(f" {numero}.{sub} {etiqueta}")
+        print(f"       {descripcion}")
+    print("-" * 62)
+
+
+def _bucle_submenu(numero: str, interprete: str, sin_log: bool) -> None:
+    """Submenú: repite hasta que el usuario pulse Enter (volver) o 0."""
+    datos = SUBMENUS[numero]
+    while True:
+        _pintar_submenu(numero)
+        try:
+            sub = input(f"Elige una opción ({numero}.1-{numero}."
+                        f"{list(datos['opciones'])[-1]}, Enter = volver): "
+                        ).strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  Volviendo al menú principal.")
+            return
+        if sub in ("", "0", "v", "volver"):
+            return
+        if sub not in datos["opciones"]:
+            print(f"  [!] Opción '{sub}' no reconocida en este submenú.")
+            continue
+        _despachar(f"{numero}.{sub}", interprete, sin_log)
+
+
 def _despachar(eleccion: str, interprete: str, sin_log: bool) -> None:
+    """Ejecuta una opción del menú o abre su submenú.
+
+    Las acciones se indexan con puntos ('3.1' = submenú 3, opción 1), así que
+    el despacho y los tests usan la MISMA tabla.
+    """
+    if eleccion in SUBMENUS:
+        try:
+            _bucle_submenu(eleccion, interprete, sin_log)
+        except KeyboardInterrupt:
+            print("\n  Cancelado. Volviendo al menú.")
+        return
     accion = ACCIONES.get(eleccion)
     if accion is None:
         ultima = ORDEN_OPCIONES[-1]

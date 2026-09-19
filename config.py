@@ -757,6 +757,148 @@ ARCHIVO_POR_PROVINCIA = {
     },
 }
 
+# ====== v10.4.2 (BLOQUE 3) — CONTACTOS PARA PEDIR PARTIDAS (por ramas) ======
+# Tabla creada a partir de docs/fuentes_reales_2026-09.md (investigación
+# empírica de septiembre de 2026) para que el menú pueda REDACTAR las
+# solicitudes de una rama familiar sin que haya que buscar un correo a mano.
+#
+# CORRECCIÓN DE ZAMORA (la pide el usuario y está en el informe): el Archivo
+# Histórico Diocesano de Zamora está **cerrado por obras**; las consultas
+# genealógicas se atienden en `secretaria@zamorarte.com`. El
+# `archivo@diocesisdezamora.es` del directorio antiguo NO es la vía de ahora.
+#
+# Y la de Palencia: los trámites de partidas van a
+# `partidas@archivodiocesanopalencia.es` (el `archivo@diocesispalencia.org` es
+# la dirección general de la diócesis).
+ARCHIVOS_CONTACTOS = {
+    "palencia": {
+        "tipo": "diocesano",
+        "archivo": "Archivo Histórico Diocesano de Palencia",
+        "email": "partidas@archivodiocesanopalencia.es",
+        "email_general": "archivo@diocesispalencia.org",
+        "telefono": "+34 979 714 462",
+        "direccion": "C/ San Marcos, 1 Bis, 34001 Palencia",
+        "horario": "L-V 10:00-13:30 (cita previa; cerrado en agosto)",
+        "tasas": "carnet de sala 5 €; búsqueda/certificación ~6-15 € por "
+                 "partida; máx. 5 peticiones por semana",
+        "plazo": "15-30 días hábiles",
+        "instrucciones": "Email indicando tipo de partida, localidad, "
+                         "parroquia, nombre, padres y fecha aproximada.",
+    },
+    "zamora": {
+        "tipo": "diocesano",
+        "archivo": "Archivo Histórico Diocesano de Zamora (Palacio Episcopal)",
+        "email": "secretaria@zamorarte.com",
+        "email_general": "archivo@diocesisdezamora.es",
+        "aviso": "CERRADO POR OBRAS: los trámites de documentación "
+                 "genealógica se atienden por email (secretaria@zamorarte.com).",
+        "telefono": "980 58 23 88 / 980 53 18 02",
+        "direccion": "Palacio Episcopal, Puerta del Obispo 2, 49001 Zamora",
+        "horario": "L-V 10:00-14:00 (cita previa)",
+        "tasas": "arancel eclesiástico ~10-25 € según búsqueda y envío "
+                 "(consulta presencial gratuita)",
+        "plazo": "20-45 días hábiles",
+        "instrucciones": "Email detallando persona, parroquia y rango de "
+                         "fechas; el archivero confirma y da la cuenta para "
+                         "la transferencia.",
+    },
+    "alava": {
+        "tipo": "diocesano",
+        "archivo": "Archivo Histórico Diocesano de Vitoria (AHDV-GEAH)",
+        "email": "consultas@ahdv-geah.org",
+        "email_general": "archivo@ahdv-geah.org",
+        "telefono": "945 213 871 / 945 213 872 / 945 213 873",
+        "direccion": "Seminario Diocesano, C/ Beato Tomás de Zumárraga 67, "
+                     "01008 Vitoria-Gasteiz",
+        "horario": "L, J y V con cita previa (tel. 10:00-13:00)",
+        "tasas": "búsqueda online GRATIS (1481-1900 en SIGA/Dokuklik); "
+                 "copia certificada ~3-10 €",
+        "plazo": "online inmediato; certificados 5-10 días",
+        "instrucciones": "Cita la parroquia, el fondo, la signatura y el "
+                         "folio que salen del buscador (artxibo/SIGA).",
+    },
+    "burgos": {
+        "tipo": "diocesano",
+        "archivo": "Archivo Diocesano de Burgos",
+        "email": "archivo@archiburgos.es",
+        "telefono": "947 208 440",
+        "direccion": "C/ Eduardo Martínez del Campo 7, 09003 Burgos",
+        "horario": "L-V 09:30-14:00 (cerrado en agosto)",
+        "tasas": "~10-20 € según localización del tomo",
+        "plazo": "15-30 días hábiles",
+    },
+    "valladolid": {
+        "tipo": "diocesano",
+        "archivo": "Archivo General Diocesano de Valladolid",
+        "email": "archivodiocesano@archivalladolid.org",
+        "telefono": "670 982 288 / 983 217 927",
+        "direccion": "C/ Arribas 1 (Catedral), 47002 Valladolid",
+        "horario": "L-V 09:00-14:00",
+        "tasas": "búsqueda 10 €; partida anterior a 1800: 20 €; certificación "
+                 "de más de 100 años: 15 €; legalización 5 €",
+        "plazo": "10-20 días hábiles",
+    },
+    "leon": {
+        "tipo": "diocesano",
+        "archivo": "Archivo Histórico Diocesano de León",
+        "email": "archivodiocesano@diocesisdeleon.org",
+        "telefono": "987 25 79 21 / 987 21 96 80",
+        "direccion": "Plaza de la Regla 7, 24003 León",
+        "horario": "L-V 10:30-13:30 (cerrado en agosto)",
+        "tasas": "~10-15 € por partida",
+        "plazo": "20-30 días hábiles",
+    },
+}
+ARCHIVOS_CONTACTOS["araba"] = ARCHIVOS_CONTACTOS["alava"]
+
+# Registros civiles y juzgados de paz (desde el 1 de enero de 1871).
+# GRATIS por ley: nunca hay que pagar a un intermediario.
+REGISTRO_CIVIL_CONTACTOS = {
+    "castrejon de la pena": {
+        "municipio": "Castrejón de la Peña / Roscales de la Peña",
+        "juzgado_paz": "Juzgado de Paz de Castrejón (Plaza Mayor 1, "
+                       "tel. 979 87 71 19)",
+        "registro": "Registro Civil de Cervera de Pisuerga",
+        "email": "registrocivil.cerveradepisuerga@justicia.es",
+        "telefono": "979 87 02 97 / 979 87 00 59",
+        "direccion": "C/ Cueva de la Virgen 3, 34840 Cervera de Pisuerga "
+                     "(Palencia)",
+        "tasas": "GRATIS (0 €)",
+    },
+    "coreses": {
+        "municipio": "Coreses",
+        "juzgado_paz": "Juzgado de Paz de Coreses (C/ San Roque 19, "
+                       "tel. 980 500 239)",
+        "registro": "Registro Civil de Zamora",
+        "email": "registrocivil.zamora@justicia.es",
+        "telefono": "980 55 94 53",
+        "direccion": "C/ Riego 5, 49004 Zamora",
+        "tasas": "GRATIS (0 €)",
+    },
+    "pobladura del valle": {
+        "municipio": "Pobladura del Valle",
+        "juzgado_paz": "Juzgado de Paz de Pobladura (Ayto., "
+                       "tel. 980 65 00 03)",
+        "registro": "Registro Civil de Benavente",
+        "email": "registrocivil.benavente@justicia.es",
+        "telefono": "980 63 50 71 / 980 63 04 89",
+        "direccion": "Plaza de San Francisco 4, 49600 Benavente (Zamora)",
+        "tasas": "GRATIS (0 €)",
+    },
+    "vitoria": {
+        "municipio": "Vitoria-Gasteiz",
+        "juzgado_paz": "—",
+        "registro": "Registro Civil de Vitoria-Gasteiz (Palacio de Justicia)",
+        "email": "RegistroCivilVitoria-Gasteiz@justizia.eus",
+        "telefono": "945 004 879",
+        "direccion": "Avda. de Gasteiz 18, 01008 Vitoria-Gasteiz (Álava)",
+        "tasas": "GRATIS (0 €)",
+    },
+}
+REGISTRO_CIVIL_CONTACTOS["vitoria-gasteiz"] = REGISTRO_CIVIL_CONTACTOS["vitoria"]
+REGISTRO_CIVIL_CONTACTOS["roscales de la pena"] = (
+    REGISTRO_CIVIL_CONTACTOS["castrejon de la pena"])
+
 PROVINCIAS_CONOCIDAS = {
     "alava", "araba", "albacete", "alicante", "almeria", "asturias", "avila",
     "badajoz", "barcelona", "burgos", "caceres", "cadiz", "cantabria",

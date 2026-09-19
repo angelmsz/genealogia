@@ -120,11 +120,29 @@ def test_guardia_contra_deriva_de_flags():
     flags_menu = {"--fase", "--presupuesto-max", "--aceptar", "--frontera",
                   "--diagnostico", "--probar-ocr", "--manuscrito",
                   "--sin-cache", "--max-steps", "--test-llm", "--ciclo",
-                  "--personas"}
+                  "--personas", "--solicitudes", "--importar-propios",
+                  "--reclasificar", "--ensenada", "--probar-conectores",
+                  "--limpiar-cache-hallazgos"}
     assert flags_menu <= flags_main, (
         f"flags del menú que ya no existen en main.py: {flags_menu - flags_main}")
     assert (RAIZ / "resumen_noche.py").is_file()
+    assert (RAIZ / "ramas.py").is_file()        # opciones 1 y 2 del menú
     assert (RAIZ / "tests").is_dir()
+
+
+def test_ninguna_opcion_de_main_se_quedo_sin_sitio():
+    """v10.4.2 (BLOQUE 3): al pasar de 15 opciones a 9, TODAS las opciones de
+    main.py siguen teniendo camino en el menú (o en la chuleta). Si alguien
+    añade una opción al bot, este test avisa de que hay que darle sitio."""
+    texto = (RAIZ / "main.py").read_text(encoding="utf-8")
+    flags_main = set(re.findall(r'add_argument\(\s*"(--[a-z0-9\-]+)"', texto))
+    cubiertos = {"--fase", "--presupuesto-max", "--max-steps", "--ciclo",
+                 "--personas", "--aceptar", "--frontera", "--diagnostico",
+                 "--test-llm", "--probar-ocr", "--manuscrito", "--sin-cache",
+                 "--solicitudes", "--importar-propios", "--reclasificar",
+                 "--ensenada", "--probar-conectores",
+                 "--limpiar-cache-hallazgos"}
+    assert flags_main <= cubiertos, sorted(flags_main - cubiertos)
 
 
 # ============================== 2. GIT PULL ================================
@@ -745,6 +763,160 @@ def test_mostrar_argv_entrecomilla_solo_si_hay_espacios():
         ["py", "-c", "import x\nprint(1)"])
 
 
+# =========== BLOQUE 3: MENÚ POR RAMAS Y SUBMENÚS (v10.4.2) ==================
+
+def test_cada_accion_es_alcanzable_desde_el_menu():
+    """Ninguna función se ha quedado sin camino: cada acción está en el menú
+    principal o dentro de un submenú que existe de verdad."""
+    for clave in menu.ACCIONES:
+        if "." in clave:
+            padre, sub = clave.split(".")
+            assert padre in menu.SUBMENUS, f"{clave}: falta el submenú {padre}"
+            assert sub in menu.SUBMENUS[padre]["opciones"], clave
+        else:
+            assert clave in menu.ORDEN_OPCIONES, clave
+        assert clave in menu.ETIQUETA_ACCION
+    for numero in menu.SUBMENUS:
+        assert numero in menu.ORDEN_OPCIONES, numero
+        assert numero in menu.OPCIONES
+    assert len(menu.ORDEN_OPCIONES) == 9
+
+
+def test_no_se_ha_perdido_ninguna_funcionalidad():
+    """Las 15 opciones de la v10.4.1 siguen existiendo, repartidas entre el
+    menú de 9 y los submenús: git pull, pytest, diagnóstico, fase 2, aceptar,
+    frontera, resumen, probar-ocr, dependencias, fonttools, último log, ciclo,
+    fase 1, personas y chuleta."""
+    assert set(menu.ACCIONES) == {
+        "1", "2",                                    # ramas (nuevas)
+        "3.1", "3.2", "3.3", "3.4", "3.5",           # investigar
+        "4.1", "4.2", "4.3",                         # árbol y cola
+        "5.1", "5.2",                                # OCR
+        "6.1", "6.2", "6.3",                         # diagnóstico
+        "7.1", "7.2",                                # git y tests
+        "8.1", "8.2", "8.3",                         # trámites y cachés
+        "9.1", "9.2", "9.3", "9.4",                  # mantenimiento
+    }
+
+
+def test_submenu_se_abre_y_vuelve(monkeypatch, capsys, py):
+    _respuestas(monkeypatch, ["3", "", "0"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+    assert menu.main(["--sin-pausa", "--sin-log"]) == 0
+    salida = capsys.readouterr().out
+    assert "Investigar" in salida
+    assert "3.1 --fase 1 (solo búsqueda)" in salida
+    assert "3.5 resumen de la última tanda" in salida
+    assert rec.llamadas == []
+
+
+def test_submenu_ejecuta_su_accion(monkeypatch, py):
+    _respuestas(monkeypatch, ["7", "2", "0"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+    assert menu.main(["--sin-pausa", "--sin-log"]) == 0
+    # main() usa el intérprete REAL (el .venv del proyecto): se comprueba el
+    # comando a partir del ejecutable.
+    assert len(rec.llamadas) == 1
+    assert rec.llamadas[0][1:] == ["-m", "pytest", "tests", "-q"]
+
+
+def test_submenu_opcion_desconocida_no_revienta(monkeypatch, capsys, py):
+    _respuestas(monkeypatch, ["7", "99", "0"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+    assert menu.main(["--sin-pausa", "--sin-log"]) == 0
+    assert "no reconocida en este submenú" in capsys.readouterr().out
+    assert rec.llamadas == []
+
+
+def test_opcion_1_rama_paterna_enter_cancela(monkeypatch, py, capsys):
+    _respuestas(monkeypatch, [""])                 # Enter = n
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+    assert menu.accion_rama_paterna(py) == 0
+    assert rec.llamadas == []
+    assert "no se ha hecho nada" in capsys.readouterr().out
+
+
+def test_opcion_1_rama_paterna_lanza_ramas(monkeypatch, py, capsys):
+    _respuestas(monkeypatch, ["s"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+    menu.accion_rama_paterna(py)
+    assert rec.ultimo == [py, "ramas.py", "--rama", "paterna"]
+    assert "estado_investigacion.json" in capsys.readouterr().out
+
+
+def test_opcion_2_rama_materna_lanza_ramas(monkeypatch, py):
+    _respuestas(monkeypatch, ["s"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+    menu.accion_rama_materna(py)
+    assert rec.ultimo == [py, "ramas.py", "--rama", "materna"]
+
+
+def test_limpiar_cache_avisa_y_pasa_si(monkeypatch, py, capsys):
+    """El menú pregunta UNA vez (Enter = n) y pasa -y para no preguntar dos
+    veces por lo mismo."""
+    _respuestas(monkeypatch, ["s"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+    menu.accion_limpiar_cache(py)
+    assert rec.ultimo == [py, "main.py", "--limpiar-cache-hallazgos", "-y"]
+    assert "cache_agente.db.bak" in capsys.readouterr().out
+
+
+def test_fase2_sin_cache_pide_presupuesto_y_confirma(monkeypatch, py):
+    _respuestas(monkeypatch, ["0.3", "s"])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+    menu.accion_fase2_sin_cache(py)
+    assert rec.ultimo == [py, "main.py", "--fase", "2", "--sin-cache",
+                          "--presupuesto-max", "0.3"]
+
+
+def test_fase2_sin_cache_enter_cancela(monkeypatch, py):
+    _respuestas(monkeypatch, ["0.3", ""])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+    assert menu.accion_fase2_sin_cache(py) == 0
+    assert rec.llamadas == []
+
+
+def test_ensenada_pide_confirmacion_de_gasto(monkeypatch, py, capsys):
+    prompts = _respuestas(monkeypatch, [""])
+    rec = Grabador()
+    monkeypatch.setattr(menu, "_correr", rec)
+    assert menu.accion_ensenada(py) == 0
+    assert rec.llamadas == []
+    assert any("gastar dinero" in p for p in prompts)
+    assert "no se ha gastado nada" in capsys.readouterr().out
+
+
+def test_conectores_y_reclasificar_piden_confirmacion(monkeypatch, py):
+    for accion in (menu.accion_probar_conectores, menu.accion_reclasificar,
+                   menu.accion_importar_propios, menu.accion_solicitudes):
+        _respuestas(monkeypatch, ["s"])
+        rec = Grabador()
+        monkeypatch.setattr(menu, "_correr", rec)
+        accion(py)
+        assert rec.llamadas, f"{accion.__name__} no lanzó nada"
+
+
+def test_menu_bat_apunta_al_menu_y_fuerza_utf8():
+    """Menu.bat es lo que se pulsa con doble clic: no puede apuntar a otro
+    sitio, ni perder el UTF-8 de la consola, ni dejar de pasar los argumentos."""
+    texto = (RAIZ / "Menu.bat").read_text(encoding="utf-8", errors="replace")
+    assert "menu_principal.py" in texto
+    assert "lanzador.py" not in texto
+    assert "chcp 65001" in texto
+    assert "PYTHONUTF8=1" in texto
+    assert "PYTHONIOENCODING=utf-8" in texto
+    assert "%*" in texto
+
+
 # ============================== 11. HUMO REAL ==============================
 
 def test_smoke_arranca_y_sale_con_cero():
@@ -767,5 +939,24 @@ def test_smoke_arranca_y_sale_con_cero():
     assert "MENÚ DE TAREAS" in resultado.stdout
     assert "VERSION: 10.4" in resultado.stdout
     assert "Elige una opción" in resultado.stdout
+    assert "Traceback" not in resultado.stdout
+    assert "Traceback" not in resultado.stderr
+
+
+def test_smoke_entra_en_un_submenu_y_sale_con_cero():
+    """Humo real del menú NUEVO (lo mismo que arranca Menu.bat): se entra en un
+    submenú, se vuelve con Enter y se sale con 0. Sin traceback y sin salida
+    rota por la consola."""
+    entorno = dict(os.environ)
+    entorno["PYTHONIOENCODING"] = "utf-8"
+    entorno["PYTHONUTF8"] = "1"
+    resultado = subprocess.run(
+        [sys.executable, "menu_principal.py", "--sin-pausa", "--sin-log"],
+        input="3\n\n0\n", cwd=RAIZ, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=120, env=entorno)
+    assert resultado.returncode == 0, resultado.stderr[-800:]
+    assert "\ufffd" not in resultado.stdout
+    assert "3.5 resumen de la última tanda" in resultado.stdout
+    assert "AME" not in resultado.stdout           # sin menú duplicado raro
     assert "Traceback" not in resultado.stdout
     assert "Traceback" not in resultado.stderr

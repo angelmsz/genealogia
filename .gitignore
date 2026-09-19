@@ -51,6 +51,10 @@ informe_fase1.json
 informe_progreso.md
 solicitudes.json
 solicitudes.md
+# v10.4.2 (BLOQUE 3) — informes y cartas por rama familiar: llevan nombres,
+# municipios y fechas de la familia. El repositorio es PÚBLICO: nunca al repo.
+solicitudes_rama_*.md
+solicitudes_rama_*.json
 candidatos_ensenada.json
 registro_confirmaciones.jsonl
 
