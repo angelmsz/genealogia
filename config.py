@@ -1112,7 +1112,13 @@ AGENTE_MAX_FICHAS = 40             # fichas abiertas por tanda (gratis, pero red
 AGENTE_FICHAS_POR_APELLIDO = 4     # fichas como mucho por apellido buscado
 AGENTE_FILAS_POR_LLAMADA = 60      # filas que se le enseñan a la IA de una vez
 AGENTE_MAX_TOKENS_SALIDA = 3000    # techo de salida de la respuesta de la IA
-AGENTE_VENTANA_MARGEN = (90, 20)   # ventana de generaciones: (min-90, max+20)
+AGENTE_VENTANA_MARGEN = (110, 50)  # ventana: (el más antiguo − 110, el más nuevo + 50)
+#                 ^^^^^^^^^^^^ POR QUÉ ESTOS NÚMEROS (fallo detectado en vivo):
+#                 -110 cubre tres generaciones por encima (padres, abuelos,
+#                 bisabuelos) y +50 cubre los HIJOS. Con un margen más corto
+#                 (90/20) la búsqueda de Eusebio (1858) quedaba en 1768-1878 y
+#                 dejaba fuera a sus propios hijos, que nacieron en 1885-1896:
+#                 se abrían fichas de homónimos y la lista salía VACÍA.
 AGENTE_DELAY = (0.4, 1.0)          # cortesía entre consultas (segundos)
 AGENTE_VENTANA = "agente_alava.json"              # estado reanudable
 AGENTE_INFORME = "familiares_archivo_vasco.md"    # la lista para leer

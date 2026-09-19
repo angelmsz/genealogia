@@ -285,6 +285,29 @@ def test_la_ia_no_puede_subir_un_pista_a_compatible():
 
 # =================== 4. EL SELLO DE ≥2 DATOS (PIEZA PURA) ==================
 
+def test_lo_que_dice_la_partida_entra_aunque_la_ia_no_diga_nada():
+    """Si la fila nombra como padre a alguien ya identificado, ese pariente lo
+    certifica el DOCUMENTO: entra en la lista aunque la IA no lo mencione (o
+    aunque la IA falle). Es el caso de los hermanos: su bautismo nombra a los
+    mismos padres."""
+    estado = agente.estado_vacio()
+    agente.anotar_conocido(estado, nombre="Eusebio",
+                           apellido1="Saenz de Navarrete",
+                           apellido2="Tellaeche", anio=1858,
+                           municipio="Navaridas", parentesco="tatarabuelo")
+    agente.apuntar_apellido(estado, "Saenz de Navarrete", "la línea")
+    buscador = BuscadorFalso({"saenz de navarrete": {"bautismo": [VICTOR_1885]}})
+    ia_muda = _ia_falsa({})            # la IA no dice nada de nadie
+    agente.investigar(estado, buscador, None, ia_muda, max_llm=1,
+                      max_consultas=2, avisar=lambda t: None, pausa=(0, 0))
+
+    victor = next(p for p in estado["personas"].values() if p.get("anio") == 1885)
+    assert victor["nivel"] == agente.SELLO_PARTIDA
+    assert victor["parentesco"].startswith("hijo/a")
+    assert "Eusebio" in victor["parentesco"]
+    assert any("la partida nombra" in m for m in victor["motivos"])
+
+
 def test_el_sello_cuenta_los_datos_independientes():
     estado = _estado_con_victor()
     # (a) La partida NOMBRA a alguien ya identificado: lo más fuerte.

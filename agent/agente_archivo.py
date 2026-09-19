@@ -643,6 +643,7 @@ def investigar(estado: dict, buscar, abrir_ficha=None, preguntar=None, *,
 
         ini, fin = ventana_familia(estado)
         lote: list[dict] = []
+        vistos: set = set()
         for tipo in TIPOS_BUSQUEDA:
             filas = _intentar_buscar(estado, buscar, apellido, tipo, ini, fin,
                                      di, ficha_ap)
@@ -653,12 +654,14 @@ def investigar(estado: dict, buscar, abrir_ficha=None, preguntar=None, *,
                 # abre a todo el índice.
                 filas = _intentar_buscar(estado, buscar, apellido, tipo, None,
                                          None, di, ficha_ap)
-            lote.extend(filas)
             for fila in filas:
-                for nuevo in apellidos_de_registro(fila):
-                    if apuntar_apellido(estado, nuevo,
-                                        f"aparece en una fila de {apellido}"):
-                        di(f"   apellido nuevo para buscar: «{nuevo}»")
+                # La misma partida puede salir en dos búsquedas (el portal
+                # contesta a veces lo mismo por bautismo y por matrimonio): se
+                # ve una sola vez.
+                if fila.get("id") in vistos:
+                    continue
+                vistos.add(fila.get("id"))
+                lote.append(fila)
             time.sleep(random.uniform(*pausa))
         ficha_ap["estado"] = "hecho"
         ficha_ap["filas"] = len(lote)
@@ -673,6 +676,18 @@ def investigar(estado: dict, buscar, abrir_ficha=None, preguntar=None, *,
         candidatas = [(s, f) for s, f in candidatas if s[0] != SELLO_PISTA]
         candidatas.sort(key=lambda par: (par[0][0] != SELLO_PARTIDA,
                                          -(par[1].get("anio") or 0)))
+        # Los apellidos que se van a buscar después salen SOLO de los registros
+        # que tocan a la familia: buscando 'Saenz de Navarrete' en Álava salen
+        # decenas de familias homónimas (medido: 82 filas) y coger los apellidos
+        # de todas llenaba la cola de apellidos que no son de nadie de los
+        # nuestros (Martínez de Baños, Muro, Saenz de Olano…). De una fila de la
+        # familia, en cambio, salen los apellidos que SÍ son la línea: los de la
+        # madre y los de la mujer (Dopico, Guzmán, Tellaeche, Aguirre…).
+        for _sello, fila in candidatas:
+            for nuevo in apellidos_de_registro(fila):
+                if apuntar_apellido(estado, nuevo,
+                                    f"aparece en una fila de {apellido}"):
+                    di(f"   apellido nuevo para buscar: «{nuevo}»")
         abiertas = 0
         for _sello, fila in candidatas:
             if abiertas >= fichas_por_apellido or estado["fichas"] >= max_fichas:
@@ -690,6 +705,35 @@ def investigar(estado: dict, buscar, abrir_ficha=None, preguntar=None, *,
             time.sleep(random.uniform(*pausa))
         if abiertas:
             di(f"   {abiertas} ficha(s) abiertas (dicen el nombre y los padres).")
+
+        # LO QUE DICE LA PARTIDA ENTRA SIN DEPENDER DE LA IA. Si la fila nombra
+        # como padre/madre/cónyuge a alguien ya identificado, ese pariente está
+        # certificado por el documento: se apunta aunque la IA no lo mencione
+        # (y aunque la IA falle). Los que solo "cuadran" (2 datos) los decide la
+        # IA: si no, una búsqueda por apellido llenaría la lista de homónimos.
+        for nivel_fila, fila in candidatas:
+            if nivel_fila[0] != SELLO_PARTIDA:
+                continue
+            enlace, etiqueta = enlaza_con_la_familia(fila, estado)
+            parentesco = ("hijo/a" if etiqueta in ("padre", "madre")
+                          else "cónyuge")
+            quien = _persona_de(fila, "persona")
+            ya_estaba = clave_persona(quien.get("nombre", ""),
+                                      quien.get("apellido1", ""),
+                                      fila.get("anio"),
+                                      fila.get("id")) in estado["personas"]
+            clave = anotar_persona(estado, fila,
+                                   parentesco=f"{parentesco} — {enlace}",
+                                   nivel=nivel_fila[0], datos=nivel_fila[1],
+                                   motivos=list(nivel_fila[2]),
+                                   papel=PAPEL_COLATERAL, de_quien=etiqueta,
+                                   ficha=fila.get("ficha"))
+            if ya_estaba:
+                continue
+            persona = estado["personas"].get(clave) or {}
+            di(f"   + {persona.get('nombre')} {persona.get('apellido1')} "
+               f"({persona.get('anio') or '¿?'}) · {parentesco} · "
+               f"{ETIQUETA_SELLO[SELLO_PARTIDA]}")
 
         # LA IA lee el lote: qué filas son familiares y qué apellidos seguir.
         _llamar_a_la_ia(estado, lote, apellido, preguntar, di,
@@ -777,11 +821,18 @@ def _llamar_a_la_ia(estado: dict, lote: list[dict], apellido: str, preguntar,
                  if pariente["parentesco"].lower().startswith(
                      ("padre", "madre", "abuel"))
                  else PAPEL_COLATERAL)
+        quien = _persona_de(fila, "persona")
+        ya_estaba = clave_persona(quien.get("nombre", ""),
+                                  quien.get("apellido1", ""),
+                                  fila.get("anio"),
+                                  fila.get("id")) in estado["personas"]
         clave = anotar_persona(
             estado, fila, parentesco=pariente["parentesco"], nivel=pariente["nivel"],
             datos=pariente["datos"], motivos=pariente["motivos"], papel=papel,
             de_quien=pariente["de_quien"], confianza_ia=pariente["confianza_ia"],
             ficha=fila.get("ficha"))
+        if ya_estaba:
+            continue
         persona = estado["personas"].get(clave) or {}
         di(f"   + {persona.get('nombre')} {persona.get('apellido1')} "
            f"({persona.get('anio') or '¿?'}) · {pariente['parentesco']} · "
@@ -789,6 +840,12 @@ def _llamar_a_la_ia(estado: dict, lote: list[dict], apellido: str, preguntar,
     for nuevo in lectura["apellidos"]:
         if apuntar_apellido(estado, nuevo, "lo propone la IA"):
             di(f"   apellido nuevo (IA) para buscar: «{nuevo}»")
+    # Y de las filas que la IA ha dado por familiares también salen apellidos
+    # (los de los padres que nombra el registro).
+    for pariente in lectura["parientes"]:
+        for nuevo in apellidos_de_registro(pariente["fila"]):
+            if apuntar_apellido(estado, nuevo, "aparece en una fila de familia"):
+                di(f"   apellido nuevo para buscar: «{nuevo}»")
     if lectura["descartados"]:
         di(f"   ({lectura['descartados']} propuesta(s) de la IA descartada(s) "
            f"por no existir en las filas)")
