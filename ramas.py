@@ -233,6 +233,15 @@ def ejecutar_agente(rama: str, base: Path | None = None,
     buscar = _buscador_agente(ARTXIBO_MAX_FILAS)
     abrir = _abridor_de_fichas()
     contador = {"n": 0}
+    # Sin clave de OpenRouter: se busca igual en el archivo (gratis) y entra lo
+    # que certifica la partida, pero nadie lee los resultados. Igual que el
+    # "sin .env no muere" del resto del bot: avisa, no revienta.
+    from config import OPENROUTER_API_KEY
+    usar_ia = bool(OPENROUTER_API_KEY)
+    if not usar_ia:
+        ui.log_warn("No hay OPENROUTER_API_KEY: se buscará en el archivo SIN IA "
+                    "(entra solo lo que certifica la propia partida). Copia "
+                    ".env.example a .env para que la IA lea los resultados.")
 
     def avisar(texto: str) -> None:
         contador["n"] += 1
@@ -247,7 +256,7 @@ def ejecutar_agente(rama: str, base: Path | None = None,
             estado, buscar, abrir, None, max_llm=tope_llm,
             max_consultas=tope_consultas, max_fichas=tope_fichas,
             fichas_por_apellido=AGENTE_FICHAS_POR_APELLIDO, avisar=avisar,
-            pausa=agente.AGENTE_DELAY, base=base)
+            pausa=agente.AGENTE_DELAY, usar_ia=usar_ia, base=base)
     except PresupuestoExcedido as e:
         ui.log_warn(f"Presupuesto agotado ({e}): se guarda lo hecho.")
     except KeyboardInterrupt:

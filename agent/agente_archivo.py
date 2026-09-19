@@ -600,7 +600,7 @@ def investigar(estado: dict, buscar, abrir_ficha=None, preguntar=None, *,
                max_fichas: int = AGENTE_MAX_FICHAS,
                filas_por_llamada: int = AGENTE_FILAS_POR_LLAMADA,
                fichas_por_apellido: int = AGENTE_FICHAS_POR_APELLIDO,
-               avisar=None, pausa: tuple = AGENTE_DELAY,
+               avisar=None, pausa: tuple = AGENTE_DELAY, usar_ia: bool = True,
                base: Path | None = None, guardar_cada: int = 5) -> dict:
     """El trabajo: apellido a apellido, fila a fila, con la IA leyendo.
 
@@ -609,6 +609,9 @@ def investigar(estado: dict, buscar, abrir_ficha=None, preguntar=None, *,
     `preguntar(estado, lote, apellido)` devuelve el JSON de la IA.
     Los dos últimos son inyectables para poder probar todo esto SIN red y SIN
     gastar dinero.
+
+    `usar_ia=False` (cuando no hay clave de OpenRouter): se busca igual en el
+    archivo y entra lo que certifica la partida, pero nadie lee los resultados.
     """
     def di(texto: str) -> None:
         if avisar:
@@ -736,8 +739,11 @@ def investigar(estado: dict, buscar, abrir_ficha=None, preguntar=None, *,
                f"{ETIQUETA_SELLO[SELLO_PARTIDA]}")
 
         # LA IA lee el lote: qué filas son familiares y qué apellidos seguir.
-        _llamar_a_la_ia(estado, lote, apellido, preguntar, di,
-                        filas_por_llamada, ficha_ap)
+        # Sin clave de OpenRouter (`usar_ia=False`) se sigue igual: lo que
+        # certifica la partida ya ha entrado arriba.
+        if usar_ia:
+            _llamar_a_la_ia(estado, lote, apellido, preguntar, di,
+                            filas_por_llamada, ficha_ap)
         _guardar_de_vez_en_cuando(estado, base, guardar_cada, di)
     return estado
 

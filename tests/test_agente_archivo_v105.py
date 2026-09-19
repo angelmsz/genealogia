@@ -308,6 +308,27 @@ def test_lo_que_dice_la_partida_entra_aunque_la_ia_no_diga_nada():
     assert any("la partida nombra" in m for m in victor["motivos"])
 
 
+def test_sin_clave_de_openrouter_se_busca_igual_pero_sin_ia():
+    """Si no hay clave de la IA, no se muere: se busca en el archivo (gratis) y
+    entra lo que certifica la partida. Nadie llama al LLM."""
+    estado = agente.estado_vacio()
+    agente.anotar_conocido(estado, nombre="Eusebio",
+                           apellido1="Saenz de Navarrete", anio=1858,
+                           municipio="Navaridas")
+    agente.apuntar_apellido(estado, "Saenz de Navarrete", "la línea")
+    buscador = BuscadorFalso({"saenz de navarrete": {"bautismo": [VICTOR_1885]}})
+
+    def ia_que_no_debe_llamarse(*args, **kwargs):
+        raise AssertionError("no se debe llamar a la IA sin clave")
+
+    agente.investigar(estado, buscador, None, ia_que_no_debe_llamarse,
+                      max_llm=5, max_consultas=4, usar_ia=False,
+                      avisar=lambda t: None, pausa=(0, 0))
+    assert estado["llamadas_llm"] == 0
+    victor = next(p for p in estado["personas"].values() if p.get("anio") == 1885)
+    assert victor["nivel"] == agente.SELLO_PARTIDA
+
+
 def test_el_sello_cuenta_los_datos_independientes():
     estado = _estado_con_victor()
     # (a) La partida NOMBRA a alguien ya identificado: lo más fuerte.
@@ -501,8 +522,12 @@ def test_de_punta_a_punta_sin_red(tmp_path: Path, monkeypatch):
                         _ficha_falsa(tipo, id_))
     from agent import agente_archivo as mod
     monkeypatch.setattr(mod, "AGENTE_DELAY", (0, 0))   # sin esperas en el test
-    monkeypatch.setattr(mod, "preguntar_ia", _ia_falsa({
-        "parientes": [{"fila": 1, "parentesco": "bisabuelo", "de_quien": "Victor",
+    # La opción 1.3 solo llama a la IA si hay clave: en el test se pone una de
+    # mentira para no depender de que exista .env (y no se gasta nada: la IA
+    # está simulada).
+    import config as config_mod
+    monkeypatch.setattr(config_mod, "OPENROUTER_API_KEY", "clave-de-prueba")
+    monkeypatch.setattr(mod, "preguntar_ia", _ia_falsa({        "parientes": [{"fila": 1, "parentesco": "bisabuelo", "de_quien": "Victor",
                        "confianza": "alta", "por_que": "cuadra"}],
         "apellidos": ["Dopico"], "por_que_esos_apellidos": "seguir"}))
 
