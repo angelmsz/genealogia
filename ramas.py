@@ -3,12 +3,17 @@
 ramas.py — Una rama familiar, de una vez (v10.4.2, BLOQUE 3).
 
 QUÉ HACE
-    python ramas.py --rama paterna     # Álava/Vitoria: busca en artxibo,
-                                       # coteja con el árbol y prepara las
-                                       # solicitudes de copia literal al AHDV
-    python ramas.py --rama materna     # Palencia/Zamora: prepara las cartas a
-                                       # los archivos diocesanos y los
-                                       # certificados GRATIS del Registro Civil
+    python ramas.py --rama alava     # LÍNEA PATERNA DE TU MADRE (Álava/Vitoria):
+                                     # busca en artxibo, coteja con el árbol y
+                                     # prepara las copias literales al AHDV
+    python ramas.py --rama zamora    # LÍNEA DE TU PADRE (Merillas · López):
+                                     # cartas al archivo diocesano de Zamora
+    python ramas.py --rama palencia  # LÍNEA MATERNA DE TU MADRE (Pelaz · Merino):
+                                     # cartas al archivo diocesano de Palencia
+
+Las tres ramas se separan por PROVINCIA, que es lo que decide dónde se busca y a
+quién se escribe. Antes de esta versión las dos últimas iban juntas bajo el
+nombre "materna"; `--rama paterna` sigue valiendo como alias de `alava`.
 
 Es lo que ejecutan las opciones 1 y 2 del menú. Se puede usar suelto: no pide
 nada por teclado y NUNCA escribe en el árbol (`familia_conocida.json`) ni en los
@@ -98,15 +103,17 @@ def _escribir_informe(rama: str, texto: str,
 def ejecutar(rama: str, solo_listar: bool = False,
              base: Path | None = None) -> int:
     """Todo el trabajo de una rama. Devuelve el código de salida."""
-    if rama not in ramas.RAMAS:
-        ui.log_error(f"rama desconocida: {rama!r}")
+    try:
+        rama = ramas.resolver_rama(rama)
+    except ValueError as e:
+        ui.log_error(str(e))
         return 1
     base = base if base is not None else DIR_PROYECTO
     ui.cabecera(f"{ramas.TITULO[rama]}")
 
     personas = ramas.personas_de_rama(rama, base=base)
     if not personas:
-        ui.log_warn(f"No hay ninguna persona de la rama {rama} en el árbol ni "
+        ui.log_warn(f"No hay ninguna persona de la rama '{rama}' en el árbol ni "
                     f"en la frontera. Revisa provincia/municipio en "
                     f"familia_conocida.json.")
         return 1
@@ -118,7 +125,7 @@ def ejecutar(rama: str, solo_listar: bool = False,
                f"~{persona.get('anio') or '¿?'} · {persona['origen']}")
 
     analisis: list[dict] = []
-    if rama == ramas.RAMA_PATERNA:
+    if rama == ramas.RAMA_ALAVA:
         apellidos = ramas.apellidos_de_rama(personas)
         ui.log(f"Apellidos a buscar ENTEROS (nunca troceados): "
                f"{', '.join(apellidos) or '—'}")
@@ -182,9 +189,11 @@ def _argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         prog="ramas.py",
         description="Prepara la investigación y los trámites de una rama "
                     "familiar (no escribe en el árbol).")
-    p.add_argument("--rama", choices=sorted(ramas.RAMAS),
-                   default=ramas.RAMA_PATERNA,
-                   help="paterna (Álava/Vitoria) o materna (Palencia/Zamora)")
+    p.add_argument("--rama", type=ramas.resolver_rama,
+                   default=ramas.RAMA_ALAVA, metavar="{alava,zamora,palencia}",
+                   help="alava = línea paterna de tu madre (Álava/Vitoria); "
+                        "zamora = línea de tu padre; palencia = línea materna "
+                        "de tu madre")
     p.add_argument("--solo-listar", action="store_true",
                    help="enseña lo que haría sin escribir ni el informe ni el "
                         "estado")

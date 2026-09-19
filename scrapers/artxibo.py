@@ -319,7 +319,16 @@ def buscar_sacramentales(tipo: str = "bautismo", apellido1: str = "",
                          municipio=None, parroquia=None,
                          max_filas: int = ARTXIBO_MAX_FILAS,
                          sesion=None) -> list[dict]:
-    """Una búsqueda en el buscador sacramental de artxibo (una sola petición).
+    """Una búsqueda en el buscador sacramental de artxibo (CON paginación).
+
+    PAGINA (arreglo del 2026-09-19): el portal devuelve 100 filas por petición
+    y ordena por fecha ASCENDENTE. Con una sola petición, buscar un apellido
+    que sale 144 veces en 1481-1900 traía solo las 100 MÁS ANTIGUAS... y entre
+    las que se quedaban fuera estaba justo la partida de 1885 que buscábamos:
+    la opción 1 del menú decía "no hay ninguna solicitud que generar". Ahora se
+    pide la página siguiente (``start``) hasta ``recordsTotal`` o hasta
+    ``max_filas``. Para un apellido endémico (7.000 filas con el token) se
+    llama con ``max_filas`` pequeño a propósito.
 
     Devuelve filas normalizadas (lista vacía si no hay resultados). Si el
     portal no responde, LANZA la excepción para que el llamador NO cachee la
@@ -327,22 +336,39 @@ def buscar_sacramentales(tipo: str = "bautismo", apellido1: str = "",
     """
     s = _sesion(sesion)
     jsid = jsessionid(s)
-    payload = construir_payload(
-        tipo=tipo, apellido1=apellido1, apellido2=apellido2, nombre=nombre,
-        anio_ini=anio_ini, anio_fin=anio_fin, archivo=archivo,
-        municipio=municipio, parroquia=parroquia,
-        length=min(max(int(max_filas), 1), FILAS_POR_PETICION))
-    r = s.post(_url_con_jsid(ARTXIBO_BUSQUEDA_URL[tipo], jsid), json=payload,
-               timeout=60, headers={"X-Requested-With": "XMLHttpRequest"})
-    r.raise_for_status()
-    try:
-        crudo = r.json()
-    except ValueError as exc:
-        # El portal contesta la página de error (HTML) si la sesión caducó.
-        raise RuntimeError(
-            "artxibo: la búsqueda no devolvió JSON (sesión caducada o "
-            "cambio de formato del portal)") from exc
-    filas = parsear_resultados(crudo, tipo)
+    filas: list[dict] = []
+    vistas: set = set()
+    start = 0
+    while start < max_filas:
+        pedir = min(FILAS_POR_PETICION, max_filas - start)
+        payload = construir_payload(
+            tipo=tipo, apellido1=apellido1, apellido2=apellido2, nombre=nombre,
+            anio_ini=anio_ini, anio_fin=anio_fin, archivo=archivo,
+            municipio=municipio, parroquia=parroquia, start=start,
+            length=pedir)
+        r = s.post(_url_con_jsid(ARTXIBO_BUSQUEDA_URL[tipo], jsid),
+                   json=payload, timeout=60,
+                   headers={"X-Requested-With": "XMLHttpRequest"})
+        r.raise_for_status()
+        try:
+            crudo = r.json()
+        except ValueError as exc:
+            # El portal contesta la página de error (HTML) si la sesión caducó.
+            raise RuntimeError(
+                "artxibo: la búsqueda no devolvió JSON (sesión caducada o "
+                "cambio de formato del portal)") from exc
+        pagina = parsear_resultados(crudo, tipo)
+        for fila in pagina:
+            if fila["id"] in vistas:
+                continue
+            vistas.add(fila["id"])
+            filas.append(fila)
+        total = crudo.get("recordsTotal") if isinstance(crudo, dict) else None
+        if len(pagina) < pedir:                 # última página
+            break
+        if isinstance(total, int) and start + len(pagina) >= total:
+            break
+        start += len(pagina)
     # La API no filtra de verdad por municipio/parroquia con texto libre: si el
     # llamador los pidió, se recorta aquí para no colar filas de otro pueblo.
     if municipio:

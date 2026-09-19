@@ -998,7 +998,7 @@ ARTXIBO_TIPOS = ("bautismo", "matrimonio", "defuncion")
 ARTXIBO_ARCHIVO_VITORIA = "1"
 # Cobertura REAL del índice (medida: 1901-1910, 1911-1935 y 1901-1935 -> 0).
 ARTXIBO_ANIO_MIN, ARTXIBO_ANIO_MAX = 1481, 1900
-ARTXIBO_MAX_FILAS = 200          # tope de filas por búsqueda (1 sola pasada)
+ARTXIBO_MAX_FILAS = 200          # tope de filas por búsqueda (CON paginación)
 ARTXIBO_FILAS_POR_DOC = 12       # filas agrupadas por documento del corpus
 
 # Marca visible (texto del corpus + título del documento) para los resultados

@@ -270,6 +270,57 @@ def test_busqueda_usa_el_jsessionid_y_una_sola_peticion():
     assert len(sesion2.gets) == 1
 
 
+def test_busqueda_pagina_hasta_recordsTotal():
+    """ARREGLO del 2026-09-19: el portal devuelve 100 filas por petición y
+    ordena por fecha ascendente. Con una sola petición, un apellido que sale
+    144 veces en 1481-1900 traía solo las 100 MÁS ANTIGUAS y la partida de 1885
+    se quedaba fuera (la opción 1 decía "no hay nada que pedir"). Ahora se pide
+    la página siguiente."""
+    def _fila(i):
+        return {"bauid": 500000 + i, "baudfecsacra": "1700-01-01",
+                "baubautizadonom": "X", "baubautizadoape1": "Saenz de Navarrete",
+                "baubautizadoape2": "Dopico", "baumunicipio": "NAVARIDAS",
+                "baulocalidad": "Navaridas", "bauparroquia": "La Purísima"}
+
+    sesion = _SesionFalsa(respuestas=[
+        {"recordsTotal": 144, "data": [_fila(i) for i in range(100)]},
+        {"recordsTotal": 144, "data": [_fila(i) for i in range(100, 144)]},
+    ])
+    filas = artxibo.buscar_sacramentales(apellido1="Saenz de Navarrete",
+                                         sesion=sesion)
+    assert len(filas) == 144
+    assert len(sesion.posts) == 2
+    assert [p["start"] for p in sesion.payloads] == [0, 100]
+    # y no sigue pidiendo cuando ya no hay más
+    assert len(sesion.posts) == 2
+
+
+def test_busqueda_no_pagina_si_cabe_en_una_pagina():
+    sesion = _SesionFalsa(respuestas=[{"recordsTotal": 2, "data": [
+        {"bauid": 1, "baudfecsacra": "1811-01-01",
+         "baubautizadoape1": "Perez de Palomares", "baumunicipio": "AÑANA"}]}])
+    artxibo.buscar_sacramentales(apellido1="Perez de Palomares", sesion=sesion)
+    assert len(sesion.posts) == 1
+
+
+def test_el_token_no_arrastra_miles_de_filas():
+    """El respaldo por token se corta a propósito (MAX_FILAS_TOKEN): el índice
+    devuelve 7.009 filas para 'Saenz' y no queremos ninguna de las 7.000."""
+    sesion = _SesionFalsa(respuestas=[
+        {"data": []},                                    # el compuesto: 0
+        {"recordsTotal": 7009,
+         "data": [{"bauid": i, "baudfecsacra": "1510-01-01",
+                   "baubautizadoape1": "Saenz", "baumunicipio": "RIBERA ALTA"}
+                  for i in range(100)]},
+        {"data": []},
+    ])
+    filas, confianza = artxibo.buscar_apellido("Saenz de Navarrete",
+                                               sesion=sesion)
+    assert confianza == artxibo.CONFIANZA_BAJA
+    assert len(filas) <= artxibo.MAX_FILAS_TOKEN
+    assert sesion.payloads[1]["length"] == artxibo.MAX_FILAS_TOKEN
+
+
 def test_busqueda_sin_jsessionid_no_revienta():
     sesion = _SesionFalsa(jsessionid=None, respuestas=[{"data": []}])
     assert artxibo.buscar_sacramentales(apellido1="Pelaz", sesion=sesion) == []

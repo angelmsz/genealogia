@@ -47,21 +47,43 @@ from config import (ARCHIVOS_CONTACTOS, APELLIDOS_COMUNES, BASE_DIR,
                     ESTADO_PATH, FAMILIA_JSON_PATH, REGISTRO_CIVIL_CONTACTOS,
                     escribir_con_backup, normalizar)
 
-RAMA_PATERNA = "paterna"
-RAMA_MATERNA = "materna"
+RAMA_ALAVA = "alava"          # línea PATERNA DE LA MADRE (Sáenz de Navarrete)
+RAMA_ZAMORA = "zamora"        # línea DEL PADRE (Merillas · López)
+RAMA_PALENCIA = "palencia"    # línea MATERNA DE LA MADRE (Pelaz · Merino)
 RAMAS = {
-    RAMA_PATERNA: {
-        "titulo": "Abuelos paternos (Álava/Vitoria)",
+    RAMA_ALAVA: {
+        "titulo": "Línea paterna de tu madre — Álava/Vitoria "
+                  "(Sáenz de Navarrete)",
         "provincias": {"alava", "araba"},
         "municipios": {"vitoria", "vitoria-gasteiz"},
     },
-    RAMA_MATERNA: {
-        "titulo": "Abuelos maternos (Palencia/Zamora)",
-        "provincias": {"palencia", "zamora"},
+    RAMA_ZAMORA: {
+        "titulo": "Línea de tu padre — Zamora (Merillas · López)",
+        "provincias": {"zamora"},
+        "municipios": set(),
+    },
+    RAMA_PALENCIA: {
+        "titulo": "Línea materna de tu madre — Palencia (Pelaz · Merino)",
+        "provincias": {"palencia"},
         "municipios": set(),
     },
 }
+# Nombres que tuvo una rama antes de llamarse por su provincia (v10.4.2, para
+# no romper el historial de comandos de nadie).
+ALIAS_RAMAS = {"paterna": RAMA_ALAVA}
 TITULO = {clave: datos["titulo"] for clave, datos in RAMAS.items()}
+
+
+def resolver_rama(nombre: str) -> str:
+    """Clave de rama a partir de lo que escriba el usuario (o error claro)."""
+    clave = normalizar(nombre or "")
+    if clave in RAMAS:
+        return clave
+    if clave in ALIAS_RAMAS:
+        return ALIAS_RAMAS[clave]
+    raise ValueError(
+        f"rama desconocida: {nombre!r} (usa {' / '.join(sorted(RAMAS))})")
+
 
 # Años de desfase que ya son una contradicción (no un simple desajuste).
 TOLERANCIA_ANIO = 25
@@ -125,9 +147,7 @@ def _anio_estimado(persona: dict) -> tuple[int | None, bool]:
 
 
 def _es_de_rama(provincia: str, municipio: str, rama: str) -> bool:
-    datos = RAMAS.get(rama)
-    if datos is None:
-        raise ValueError(f"rama desconocida: {rama!r}")
+    datos = RAMAS.get(resolver_rama(rama))
     prov = normalizar(provincia or "")
     mun = normalizar(municipio or "")
     if prov and prov in datos["provincias"]:
@@ -146,6 +166,7 @@ def personas_de_rama(rama: str, familia: dict | None = None,
     """
     familia = familia if familia is not None else cargar_familia(base)
     frontera = frontera if frontera is not None else cargar_frontera(base)
+    rama = resolver_rama(rama)
     personas: dict[str, dict] = {}
     # Índice por nombre de TODAS las fichas del árbol: la frontera solo trae el
     # municipio y la prioridad, así que el año estimado y los padres salen de
@@ -461,6 +482,20 @@ def _carta_civil(persona: dict, datos_civil: dict) -> str:
         f"  Teléfono y correo: [RELLENAR]\n")
 
 
+def _coincide_el_nombre(fila: dict, persona: dict) -> bool:
+    """¿Coincide el nombre de pila (no solo los apellidos)?
+
+    Importa para el dinero: en un pueblo donde el apellido se repite, la
+    partida de un HERMANO encaja por apellidos y fecha y también sale como
+    candidata. Eso no es un error (es información), pero hay que decirlo, no
+    que el usuario lo descubra pagando una copia.
+    """
+    pila_persona = (persona.get("nombre") or "").split()
+    pila_persona = normalizar(pila_persona[0]) if pila_persona else ""
+    return bool(pila_persona) and \
+        normalizar((fila.get("persona") or {}).get("nombre", "")) == pila_persona
+
+
 def carta_al_ahdv(fila: dict, persona: dict) -> dict:
     """Solicitud de copia literal de UNA partida concreta del índice, con su
     cita completa (fondo, signatura, folio) y la ficha del portal."""
@@ -502,28 +537,36 @@ def carta_al_ahdv(fila: dict, persona: dict) -> dict:
         f"  Dirección postal: [RELLENAR]\n"
         f"  Teléfono y correo: [RELLENAR]\n"
         f"  Parentesco: [RELLENAR: p. ej. bisnieto del bautizado]\n")
+    escrito = (fila.get("persona", {}).get("completo", ""))
     return _solicitud(
-        RAMA_PATERNA, fila.get("persona", {}).get("completo", ""),
+        RAMA_ALAVA, escrito,
         f"{archivo} (AHDV-GEAH)", datos["email"],
         "copia_literal_bautismo", referencia,
         f"Solicitud de copia literal de partida de bautismo ({fila.get('fecha')}"
         f") — {parroquia}, {localidad}", cuerpo,
-        notas=f"compatibilidad: {persona.get('nombre', '')} "
-              f"({persona.get('origen', '')})")
+        notas=(f"compatibilidad: {persona.get('nombre', '')} "
+               f"({persona.get('origen', '')}) · "
+               + ("el NOMBRE DE PILA coincide: es la partida de esa persona"
+                  if _coincide_el_nombre(fila, persona) else
+                  "OJO: coinciden los apellidos y la fecha, pero el nombre de "
+                  "pila es distinto (probable hermano: pedir esta copia solo "
+                  "si la del nombre exacto no aparece)")))
 
 
 def solicitudes_de_rama(rama: str, personas: list[dict],
                         analisis: list[dict] | None = None) -> list[dict]:
     """Solicitudes que hay que enviar para una rama.
 
-    PATERNA: una copia literal al AHDV por cada partida COMPATIBLE o
-    COMPATIBLE CON RESERVAS (las INCOMPATIBLES y las que no identifican a
-    nadie no se piden: gastarían tasa sin poder encajarlas).
-    MATERNA: una carta al archivo diocesano de cada persona con localidad
-    conocida y, si el nacimiento es de 1871 en adelante, el certificado
+    ÁLAVA (paterna de la madre): una copia literal al AHDV por cada partida
+    COMPATIBLE o COMPATIBLE CON RESERVAS (las INCOMPATIBLES y las que no
+    identifican a nadie no se piden: gastarían tasa sin poder encajarlas).
+    ZAMORA y PALENCIA: solo hay archivo diocesano y Registro Civil, así que se
+    redacta una carta diocesana por persona con localidad conocida y, si el
+    nacimiento es de 1871 en adelante y el año es un DATO, el certificado
     GRATUITO del Registro Civil.
     """
-    if rama == RAMA_PATERNA:
+    rama = resolver_rama(rama)
+    if rama == RAMA_ALAVA:
         solicitudes = []
         for candidato in analisis or []:
             if candidato["evaluacion"]["veredicto"] not in (VEREDICTO_COMPATIBLE,
@@ -546,7 +589,7 @@ def solicitudes_de_rama(rama: str, personas: list[dict],
                     if persona.get("anio") is None or persona["anio"] < 1871
                     else "partida de bautismo y, si consta, de matrimonio")
             solicitudes.append(_solicitud(
-                RAMA_MATERNA, persona["nombre"], archivo, datos["email"],
+                rama, persona["nombre"], archivo, datos["email"],
                 "copia_literal_diocesana",
                 f"{persona.get('municipio')} · ~{persona.get('anio') or 'año?'}",
                 f"Solicitud de partida ({persona.get('municipio')}) — "
@@ -561,7 +604,7 @@ def solicitudes_de_rama(rama: str, personas: list[dict],
             civil = _contacto_civil(persona.get("municipio", ""))
             if civil:
                 solicitudes.append(_solicitud(
-                    RAMA_MATERNA, persona["nombre"], civil["registro"],
+                    rama, persona["nombre"], civil["registro"],
                     civil["email"], "certificado_nacimiento_civil",
                     f"{civil.get('municipio')} · ~{persona['anio']}",
                     f"Certificado literal de nacimiento (~{persona['anio']}) — "
@@ -635,11 +678,17 @@ def redactar_markdown(rama: str, personas: list[dict],
             f" · prioridad: {prioridad}")
     lineas.append("")
     if analisis:
+        candidatas = [c for c in analisis
+                      if c["evaluacion"]["veredicto"] in (VEREDICTO_COMPATIBLE,
+                                                          VEREDICTO_RESERVAS)]
+        descartadas = [c for c in analisis if c not in candidatas]
         lineas += ["## Partidas encontradas en el índice y cotejo con el árbol",
                    "",
                    "Regla del proyecto: hacen falta **≥2 datos independientes** "
-                   "para dar por buena una partida.", ""]
-        for candidato in analisis:
+                   "para dar por buena una partida. De "
+                   f"{len(analisis)} partida(s), **{len(candidatas)}** pasan el "
+                   f"corte y {len(descartadas)} quedan fuera.", ""]
+        for candidato in candidatas:
             fila = candidato["fila"]
             ev = candidato["evaluacion"]
             lineas.append(
@@ -658,8 +707,22 @@ def redactar_markdown(rama: str, personas: list[dict],
                 lineas.append(f"  - casa: {texto}")
             for texto in ev["reservas"]:
                 lineas.append(f"  - reserva: {texto}")
-            for texto in ev["conflictos"]:
-                lineas.append(f"  - CHOCA: {texto}")
+            lineas.append("")
+        if descartadas:
+            lineas += ["### Descartadas (para que se vea qué se ha mirado)", ""]
+            for candidato in descartadas[:60]:
+                fila = candidato["fila"]
+                ev = candidato["evaluacion"]
+                motivo = (ev["conflictos"] or
+                          [f"solo {ev['datos']:g} dato(s)"])[0]
+                lineas.append(
+                    f"- {fila.get('fecha')} · "
+                    f"{fila.get('persona', {}).get('completo')} · "
+                    f"{fila.get('localidad')} — {ev['veredicto']}: {motivo}")
+            if len(descartadas) > 60:
+                lineas.append(f"- … y {len(descartadas) - 60} más (todas "
+                              f"descartadas por el mismo motivo: apellido "
+                              f"endémico del pueblo, sin 2 datos).")
             lineas.append("")
     if solicitudes:
         lineas += [f"## Solicitudes a enviar ({len(solicitudes)})", "",
@@ -676,6 +739,6 @@ def redactar_markdown(rama: str, personas: list[dict],
             lineas += ["", "```", sol["cuerpo"].rstrip(), "```", ""]
     else:
         lineas += ["## Solicitudes a enviar", "",
-                   "Ninguna: no hay partidas compatibles (rama paterna) o "
-                   "ninguna persona con localidad conocida (rama materna).", ""]
+                   "Ninguna: en esta rama no hay partidas compatibles que "
+                   "pedir o ninguna persona con localidad conocida.", ""]
     return "\n".join(lineas)

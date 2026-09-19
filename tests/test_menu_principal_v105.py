@@ -786,33 +786,36 @@ def test_no_se_ha_perdido_ninguna_funcionalidad():
     """Las 15 opciones de la v10.4.1 siguen existiendo, repartidas entre el
     menú de 9 y los submenús: git pull, pytest, diagnóstico, fase 2, aceptar,
     frontera, resumen, probar-ocr, dependencias, fonttools, último log, ciclo,
-    fase 1, personas y chuleta."""
+    fase 1, personas y chuleta. Y las tres primeras son las LÍNEAS de la
+    familia (Álava · Zamora · Palencia), nombradas por parentesco."""
     assert set(menu.ACCIONES) == {
-        "1", "2",                                    # ramas (nuevas)
-        "3.1", "3.2", "3.3", "3.4", "3.5",           # investigar
-        "4.1", "4.2", "4.3",                         # árbol y cola
-        "5.1", "5.2",                                # OCR
-        "6.1", "6.2", "6.3",                         # diagnóstico
-        "7.1", "7.2",                                # git y tests
-        "8.1", "8.2", "8.3",                         # trámites y cachés
-        "9.1", "9.2", "9.3", "9.4",                  # mantenimiento
+        "1", "2", "3",                                # las tres líneas
+        "4.1", "4.2", "4.3", "4.4", "4.5",           # investigar
+        "5.1", "5.2", "5.3",                         # árbol y cola
+        "6.1", "6.2",                                # OCR
+        "7.1", "7.2", "7.3",                         # diagnóstico
+        "8.1", "8.2",                                # git y tests
+        "9.1", "9.2", "9.3", "9.4", "9.5", "9.6", "9.7",   # trámites y mant.
     }
+    assert menu.OPCIONES["1"][0].startswith("Línea paterna de tu madre")
+    assert menu.OPCIONES["2"][0].startswith("Línea de tu padre")
+    assert menu.OPCIONES["3"][0].startswith("Línea materna de tu madre")
 
 
 def test_submenu_se_abre_y_vuelve(monkeypatch, capsys, py):
-    _respuestas(monkeypatch, ["3", "", "0"])
+    _respuestas(monkeypatch, ["4", "", "0"])
     rec = Grabador()
     monkeypatch.setattr(menu, "_correr", rec)
     assert menu.main(["--sin-pausa", "--sin-log"]) == 0
     salida = capsys.readouterr().out
     assert "Investigar" in salida
-    assert "3.1 --fase 1 (solo búsqueda)" in salida
-    assert "3.5 resumen de la última tanda" in salida
+    assert "4.1 --fase 1 (solo búsqueda)" in salida
+    assert "4.5 resumen de la última tanda" in salida
     assert rec.llamadas == []
 
 
 def test_submenu_ejecuta_su_accion(monkeypatch, py):
-    _respuestas(monkeypatch, ["7", "2", "0"])
+    _respuestas(monkeypatch, ["8", "2", "0"])
     rec = Grabador()
     monkeypatch.setattr(menu, "_correr", rec)
     assert menu.main(["--sin-pausa", "--sin-log"]) == 0
@@ -823,7 +826,7 @@ def test_submenu_ejecuta_su_accion(monkeypatch, py):
 
 
 def test_submenu_opcion_desconocida_no_revienta(monkeypatch, capsys, py):
-    _respuestas(monkeypatch, ["7", "99", "0"])
+    _respuestas(monkeypatch, ["8", "99", "0"])
     rec = Grabador()
     monkeypatch.setattr(menu, "_correr", rec)
     assert menu.main(["--sin-pausa", "--sin-log"]) == 0
@@ -831,30 +834,40 @@ def test_submenu_opcion_desconocida_no_revienta(monkeypatch, capsys, py):
     assert rec.llamadas == []
 
 
-def test_opcion_1_rama_paterna_enter_cancela(monkeypatch, py, capsys):
-    _respuestas(monkeypatch, [""])                 # Enter = n
-    rec = Grabador()
-    monkeypatch.setattr(menu, "_correr", rec)
-    assert menu.accion_rama_paterna(py) == 0
-    assert rec.llamadas == []
-    assert "no se ha hecho nada" in capsys.readouterr().out
+def test_las_tres_lineas_lanzan_su_rama(monkeypatch, py):
+    """Opción 1 = Álava (paterna de la madre), 2 = Zamora (del padre),
+    3 = Palencia (materna de la madre). Enter cancela en todas."""
+    for accion, clave in ((menu.accion_rama_alava, "alava"),
+                          (menu.accion_rama_zamora, "zamora"),
+                          (menu.accion_rama_palencia, "palencia")):
+        _respuestas(monkeypatch, [""])                 # Enter = n
+        rec = Grabador()
+        monkeypatch.setattr(menu, "_correr", rec)
+        assert accion(py) == 0
+        assert rec.llamadas == [], f"{accion.__name__} lanzó algo sin permiso"
+
+        _respuestas(monkeypatch, ["s"])
+        rec = Grabador()
+        monkeypatch.setattr(menu, "_correr", rec)
+        accion(py)
+        assert rec.ultimo == [py, "ramas.py", "--rama", clave]
 
 
-def test_opcion_1_rama_paterna_lanza_ramas(monkeypatch, py, capsys):
+def test_la_linea_de_alava_avisa_de_que_usa_la_red(monkeypatch, py, capsys):
     _respuestas(monkeypatch, ["s"])
     rec = Grabador()
     monkeypatch.setattr(menu, "_correr", rec)
-    menu.accion_rama_paterna(py)
-    assert rec.ultimo == [py, "ramas.py", "--rama", "paterna"]
-    assert "estado_investigacion.json" in capsys.readouterr().out
+    menu.accion_rama_alava(py)
+    assert "portal público del AHDV" in capsys.readouterr().out
 
 
-def test_opcion_2_rama_materna_lanza_ramas(monkeypatch, py):
+def test_la_linea_de_zamora_avisa_del_cierre_por_obras(monkeypatch, py,
+                                                       capsys):
     _respuestas(monkeypatch, ["s"])
     rec = Grabador()
     monkeypatch.setattr(menu, "_correr", rec)
-    menu.accion_rama_materna(py)
-    assert rec.ultimo == [py, "ramas.py", "--rama", "materna"]
+    menu.accion_rama_zamora(py)
+    assert "secretaria@zamorarte.com" in capsys.readouterr().out
 
 
 def test_limpiar_cache_avisa_y_pasa_si(monkeypatch, py, capsys):
@@ -952,11 +965,11 @@ def test_smoke_entra_en_un_submenu_y_sale_con_cero():
     entorno["PYTHONUTF8"] = "1"
     resultado = subprocess.run(
         [sys.executable, "menu_principal.py", "--sin-pausa", "--sin-log"],
-        input="3\n\n0\n", cwd=RAIZ, capture_output=True, text=True,
+        input="4\n\n0\n", cwd=RAIZ, capture_output=True, text=True,
         encoding="utf-8", errors="replace", timeout=120, env=entorno)
     assert resultado.returncode == 0, resultado.stderr[-800:]
     assert "\ufffd" not in resultado.stdout
-    assert "3.5 resumen de la última tanda" in resultado.stdout
+    assert "4.5 resumen de la última tanda" in resultado.stdout
     assert "AME" not in resultado.stdout           # sin menú duplicado raro
     assert "Traceback" not in resultado.stdout
     assert "Traceback" not in resultado.stderr

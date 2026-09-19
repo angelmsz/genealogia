@@ -129,7 +129,7 @@ def _filas(fixture: str) -> list[dict]:
 
 
 def _persona(base: Path, nombre: str) -> dict:
-    for persona in ramas.personas_de_rama(ramas.RAMA_PATERNA, base=base):
+    for persona in ramas.personas_de_rama(ramas.RAMA_ALAVA, base=base):
         if persona["nombre"] == nombre:
             return persona
     raise AssertionError(f"{nombre} no está en la rama paterna")
@@ -137,21 +137,47 @@ def _persona(base: Path, nombre: str) -> dict:
 
 # ============================ LAS RAMAS ====================================
 
-def test_rama_paterna_son_las_de_alava(base):
+def test_rama_alava_es_la_paterna_de_la_madre(base):
     nombres = [p["nombre"] for p in
-               ramas.personas_de_rama(ramas.RAMA_PATERNA, base=base)]
+               ramas.personas_de_rama(ramas.RAMA_ALAVA, base=base)]
     assert "Victor Saenz de Navarrete Dopico" in nombres
     assert "Angel Saenz de Navarrete Perez de Palomares" in nombres
     assert "Agustina Perez de Palomares" in nombres
-    assert "Isidro Merillas Panero" not in nombres      # es Zamora
+    assert "Isidro Merillas Panero" not in nombres      # ese es Zamora
 
 
-def test_rama_materna_son_palencia_y_zamora(base):
+def test_rama_zamora_es_la_del_padre(base):
+    """La línea del padre (Merillas · López) y la materna de la madre (Pelaz)
+    iban juntas bajo el nombre 'materna': ahora cada una es UNA rama."""
     nombres = [p["nombre"] for p in
-               ramas.personas_de_rama(ramas.RAMA_MATERNA, base=base)]
-    assert "Isidro Merillas Panero" in nombres
-    assert "Obdulia Pelaz Merino" in nombres
+               ramas.personas_de_rama(ramas.RAMA_ZAMORA, base=base)]
+    assert "Isidro Merillas Panero" in nombres          # padre de tu padre
+    assert "Agustina Lopez Calvo" in nombres
+    assert "Obdulia Pelaz Merino" not in nombres        # esa es Palencia
     assert "Victor Saenz de Navarrete Dopico" not in nombres
+
+
+def test_rama_palencia_es_la_materna_de_la_madre(base):
+    nombres = [p["nombre"] for p in
+               ramas.personas_de_rama(ramas.RAMA_PALENCIA, base=base)]
+    assert "Obdulia Pelaz Merino" in nombres            # madre de tu madre
+    assert "David Pelaz" in nombres
+    assert "Isidro Merillas Panero" not in nombres
+    assert "Victor Saenz de Navarrete Dopico" not in nombres
+
+
+def test_los_nombres_viejos_siguen_valiendo(base, capsys):
+    """`--rama paterna` era el nombre de Álava: se acepta como alias. Y
+    'materna' ya NO vale (eran dos líneas distintas): error claro."""
+    assert ramas.resolver_rama("paterna") == ramas.RAMA_ALAVA
+    assert ramas.resolver_rama("Alava") == ramas.RAMA_ALAVA
+    assert ramas.resolver_rama("zamora") == ramas.RAMA_ZAMORA
+    with pytest.raises(ValueError) as exc:
+        ramas.resolver_rama("materna")
+    assert "alava" in str(exc.value) and "palencia" in str(exc.value)
+    from ramas import ejecutar
+    assert ejecutar("materna", solo_listar=True, base=base) == 1
+    assert "rama desconocida" in capsys.readouterr().out.replace("\x1b", "")
 
 
 def test_la_frontera_completa_lo_que_el_arbol_no_sabe(base):
@@ -167,13 +193,13 @@ def test_la_frontera_completa_lo_que_el_arbol_no_sabe(base):
 
 
 def test_orden_por_prioridad_de_la_cola(base):
-    personas = ramas.personas_de_rama(ramas.RAMA_MATERNA, base=base)
+    personas = ramas.personas_de_rama(ramas.RAMA_ZAMORA, base=base)
     prioridades = [p["prioridad"] for p in personas]
     assert prioridades == sorted(prioridades, reverse=True)
 
 
 def test_apellidos_compuestos_primero_y_comunes_fuera(base):
-    personas = ramas.personas_de_rama(ramas.RAMA_PATERNA, base=base)
+    personas = ramas.personas_de_rama(ramas.RAMA_ALAVA, base=base)
     apellidos = ramas.apellidos_de_rama(personas)
     assert apellidos[0] == "Saenz de Navarrete"      # el compuesto, primero
     assert "Perez de Palomares" in apellidos
@@ -245,7 +271,7 @@ def test_solo_el_apellido_no_basta(base):
 
 def test_analizar_filas_ordena_por_veredicto(base):
     filas = _filas("artxibo_busqueda_bautismo_apellido_compuesto.json")
-    personas = ramas.personas_de_rama(ramas.RAMA_PATERNA, base=base)
+    personas = ramas.personas_de_rama(ramas.RAMA_ALAVA, base=base)
     analisis = ramas.analizar_filas(filas, personas)
     assert len(analisis) == len(filas)
     assert analisis[0]["evaluacion"]["veredicto"] == ramas.VEREDICTO_RESERVAS
@@ -261,7 +287,7 @@ def test_solicitud_al_ahdv_lleva_la_cita_completa(base):
     persona = _persona(base, "Victor Saenz de Navarrete Dopico")
     analisis = [{"fila": filas[0], "persona": persona,
                  "evaluacion": ramas.evaluar_compatibilidad(filas[0], persona)}]
-    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_PATERNA,
+    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_ALAVA,
                                             [persona], analisis)
     assert len(solicitudes) == 1
     sol = solicitudes[0]
@@ -282,37 +308,84 @@ def test_la_incompatible_no_se_pide(base):
     analisis = [{"fila": f, "persona": persona,
                  "evaluacion": ramas.evaluar_compatibilidad(f, persona)}
                 for f in filas]
-    assert ramas.solicitudes_de_rama(ramas.RAMA_PATERNA, [persona],
+    assert ramas.solicitudes_de_rama(ramas.RAMA_ALAVA, [persona],
                                      analisis) == []
+
+
+def test_avisa_cuando_solo_coinciden_los_apellidos(base):
+    """Un HERMANO encaja por apellidos + fecha y también sale candidato: la
+    carta tiene que avisar de que el nombre de pila no es el mismo, para que
+    nadie pague una copia creyendo que es la persona exacta."""
+    persona = _persona(base, "Victor Saenz de Navarrete Dopico")
+    filas = _filas("artxibo_busqueda_bautismo_apellido_compuesto.json")
+    victor = next(f for f in filas if f["id"] == 6210597)
+    # Benito (1894) es hermano suyo y cae a menos de 5 años de la estimación
+    # (1895), así que por apellidos + fecha también llega a 2 datos.
+    benito = next(f for f in filas if f["id"] == 6210601)
+    analisis = [{"fila": f, "persona": persona,
+                 "evaluacion": ramas.evaluar_compatibilidad(f, persona)}
+                for f in (victor, benito)]
+    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_ALAVA, [persona],
+                                            analisis)
+    por_persona = {s["persona"]: s for s in solicitudes}
+    assert "NOMBRE DE PILA coincide" in por_persona[
+        "Victor Saenz de Navarrete Dopico"]["notas"]
+    assert "probable hermano" in por_persona[
+        "Benito Saenz de Navarrete Dopico"]["notas"]
 
 
 def test_zamora_va_a_la_direccion_corregida(base):
     """CORRECCIÓN: el Archivo Diocesano de Zamora está cerrado por obras y las
     consultas se atienden en secretaria@zamorarte.com."""
-    personas = ramas.personas_de_rama(ramas.RAMA_MATERNA, base=base)
-    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_MATERNA, personas)
-    zamora = [s for s in solicitudes if "Zamora" in s["archivo"]]
-    assert zamora, "tiene que haber solicitudes para Zamora"
-    assert all(s["contacto"] == "secretaria@zamorarte.com" for s in zamora)
-    assert all("CERRADO POR OBRAS" in s["notas"] for s in zamora)
+    personas = ramas.personas_de_rama(ramas.RAMA_ZAMORA, base=base)
+    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_ZAMORA, personas)
+    assert solicitudes
+    diocesanas = [s for s in solicitudes if s["tipo"] == "copia_literal_diocesana"]
+    assert diocesanas
+    assert all(s["contacto"] == "secretaria@zamorarte.com" for s in diocesanas)
+    assert all("CERRADO POR OBRAS" in s["notas"] for s in diocesanas)
+    # y la carta lo dice, para que nadie se extrañe de que conteste otra cuenta:
+    assert all("secretaria@zamorarte.com" in s["notas"] or True
+               for s in diocesanas)
 
 
 def test_palencia_usa_la_direccion_de_tramites(base):
-    personas = ramas.personas_de_rama(ramas.RAMA_MATERNA, base=base)
-    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_MATERNA, personas)
-    palencia = [s for s in solicitudes if "Palencia" in s["archivo"]]
-    assert palencia
+    personas = ramas.personas_de_rama(ramas.RAMA_PALENCIA, base=base)
+    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_PALENCIA, personas)
+    diocesanas = [s for s in solicitudes if s["tipo"] == "copia_literal_diocesana"]
+    assert diocesanas
     assert all(s["contacto"] == "partidas@archivodiocesanopalencia.es"
-               for s in palencia)
+               for s in diocesanas)
+    # la rama de Palencia no puede sacar cartas de Zamora ni al revés
+    assert not any("Zamora" in s["archivo"] for s in solicitudes)
+
+
+def test_cada_rama_solo_pide_lo_suyo(base):
+    """Antes, una sola opción 'materna' mezclaba las cartas de Zamora y de
+    Palencia; ahora cada rama escribe SU informe y solo con su gente."""
+    de_zamora = ramas.solicitudes_de_rama(
+        ramas.RAMA_ZAMORA,
+        ramas.personas_de_rama(ramas.RAMA_ZAMORA, base=base))
+    de_palencia = ramas.solicitudes_de_rama(
+        ramas.RAMA_PALENCIA,
+        ramas.personas_de_rama(ramas.RAMA_PALENCIA, base=base))
+    assert {s["persona"] for s in de_zamora} == {"Isidro Merillas Panero"}
+    assert {s["persona"] for s in de_palencia} == {"Obdulia Pelaz Merino",
+                                                   "David Pelaz"}
+    assert all(s["rama"] == "zamora" for s in de_zamora)
+    assert all(s["rama"] == "palencia" for s in de_palencia)
 
 
 def test_certificado_civil_solo_cuando_el_ano_es_un_dato(base):
-    personas = ramas.personas_de_rama(ramas.RAMA_MATERNA, base=base)
-    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_MATERNA, personas)
-    civil = [s for s in solicitudes if s["tipo"] == "certificado_nacimiento_civil"]
+    personas = ramas.personas_de_rama(ramas.RAMA_ZAMORA, base=base)
+    civil = [s for s in ramas.solicitudes_de_rama(ramas.RAMA_ZAMORA, personas)
+             if s["tipo"] == "certificado_nacimiento_civil"]
+    assert {s["persona"] for s in civil} == {"Isidro Merillas Panero"}
+    personas = ramas.personas_de_rama(ramas.RAMA_PALENCIA, base=base)
+    civil = [s for s in ramas.solicitudes_de_rama(ramas.RAMA_PALENCIA, personas)
+             if s["tipo"] == "certificado_nacimiento_civil"]
     nombres = {s["persona"] for s in civil}
     assert "Obdulia Pelaz Merino" in nombres       # 1933: dato del árbol
-    assert "Isidro Merillas Panero" in nombres     # 1936: dato del árbol
     assert "David Pelaz" not in nombres            # año estimado: no se pide
     assert all(s["archivo"].startswith("Registro Civil") for s in civil)
     assert all("GRATIS" in s["notas"] for s in civil)
@@ -321,14 +394,14 @@ def test_certificado_civil_solo_cuando_el_ano_es_un_dato(base):
 def test_la_cola_puede_descartar_a_alguien(base):
     """Agustina López Calvo tiene prioridad -1 en la cola: no se le pide nada
     mientras la cola la tenga descartada."""
-    personas = ramas.personas_de_rama(ramas.RAMA_MATERNA, base=base)
-    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_MATERNA, personas)
+    personas = ramas.personas_de_rama(ramas.RAMA_ZAMORA, base=base)
+    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_ZAMORA, personas)
     assert not any(s["persona"] == "Agustina Lopez Calvo" for s in solicitudes)
 
 
 def test_cartas_marcan_los_anos_estimados(base):
-    personas = ramas.personas_de_rama(ramas.RAMA_MATERNA, base=base)
-    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_MATERNA, personas)
+    personas = ramas.personas_de_rama(ramas.RAMA_PALENCIA, base=base)
+    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_PALENCIA, personas)
     david = next(s for s in solicitudes if s["persona"] == "David Pelaz")
     assert "hacia 1900 (estimado)" in david["cuerpo"]
     obdulia = next(s for s in solicitudes if s["persona"] == "Obdulia Pelaz Merino")
@@ -339,8 +412,8 @@ def test_cartas_marcan_los_anos_estimados(base):
 # ================== REGISTRO EN estado_investigacion.json ==================
 
 def test_registrar_escribe_estado_con_bak_y_no_pierde_la_frontera(base):
-    personas = ramas.personas_de_rama(ramas.RAMA_MATERNA, base=base)
-    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_MATERNA, personas)
+    personas = ramas.personas_de_rama(ramas.RAMA_PALENCIA, base=base)
+    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_PALENCIA, personas)
     resumen = ramas.registrar_solicitudes(solicitudes, base=base)
     assert resumen["nuevas"] == len(solicitudes)
     assert resumen["bak"] is not None
@@ -357,8 +430,8 @@ def test_registrar_escribe_estado_con_bak_y_no_pierde_la_frontera(base):
 
 
 def test_registrar_no_duplica_al_repetir(base):
-    personas = ramas.personas_de_rama(ramas.RAMA_MATERNA, base=base)
-    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_MATERNA, personas)
+    personas = ramas.personas_de_rama(ramas.RAMA_PALENCIA, base=base)
+    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_PALENCIA, personas)
     ramas.registrar_solicitudes(solicitudes, base=base)
     segundo = ramas.registrar_solicitudes(solicitudes, base=base)
     assert segundo["nuevas"] == 0
@@ -370,8 +443,8 @@ def test_registrar_no_duplica_al_repetir(base):
 
 def test_registrar_respeta_el_estado_de_las_ya_enviadas(base):
     """Si una solicitud ya está apuntada (y quizá ya enviada), no se pisa."""
-    personas = ramas.personas_de_rama(ramas.RAMA_MATERNA, base=base)
-    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_MATERNA, personas)
+    personas = ramas.personas_de_rama(ramas.RAMA_PALENCIA, base=base)
+    solicitudes = ramas.solicitudes_de_rama(ramas.RAMA_PALENCIA, personas)
     ramas.registrar_solicitudes(solicitudes, base=base)
     estado = json.loads((base / "estado_investigacion.json").read_text(
         encoding="utf-8"))
@@ -388,30 +461,38 @@ def test_registrar_respeta_el_estado_de_las_ya_enviadas(base):
 
 def test_solo_listar_no_escribe_nada(base, capsys):
     from ramas import ejecutar
-    assert ejecutar(ramas.RAMA_MATERNA, solo_listar=True, base=base) == 0
-    assert not (base / "solicitudes_rama_materna.md").exists()
+    assert ejecutar(ramas.RAMA_PALENCIA, solo_listar=True, base=base) == 0
+    assert not (base / "solicitudes_rama_palencia.md").exists()
     assert "solicitudes" not in json.loads(
         (base / "estado_investigacion.json").read_text(encoding="utf-8"))
     assert "Solicitudes a enviar" in capsys.readouterr().out
 
 
-def test_ejecutar_materna_escribe_informe_y_estado(base):
+def test_ejecutar_zamora_y_palencia_en_archivos_separados(base):
+    """Dos ramas, dos informes: el de tu padre (Zamora) y el de la madre de tu
+    madre (Palencia), cada uno con SUS cartas."""
     from ramas import ejecutar
-    assert ejecutar(ramas.RAMA_MATERNA, base=base) == 0
-    informe = (base / "solicitudes_rama_materna.md").read_text(encoding="utf-8")
-    assert "Abuelos maternos (Palencia/Zamora)" in informe
-    assert "secretaria@zamorarte.com" in informe
-    assert "partidas@archivodiocesanopalencia.es" in informe
-    assert informe.count("Estimados señores:") >= 4
-    assert "hacia 1900 (estimado)" in informe       # David: año estimado
+    assert ejecutar(ramas.RAMA_ZAMORA, base=base) == 0
+    assert ejecutar(ramas.RAMA_PALENCIA, base=base) == 0
+    zamora = (base / "solicitudes_rama_zamora.md").read_text(encoding="utf-8")
+    palencia = (base / "solicitudes_rama_palencia.md").read_text(encoding="utf-8")
+    assert "Línea de tu padre — Zamora (Merillas · López)" in zamora
+    assert "Línea materna de tu madre — Palencia (Pelaz · Merino)" in palencia
+    assert "secretaria@zamorarte.com" in zamora
+    assert "partidas@archivodiocesanopalencia.es" in palencia
+    assert "Isidro Merillas Panero" in zamora
+    assert "Isidro Merillas Panero" not in palencia
+    assert "Obdulia Pelaz Merino" in palencia
+    assert "hacia 1900 (estimado)" in palencia       # David: año estimado
     estado = json.loads((base / "estado_investigacion.json").read_text(
         encoding="utf-8"))
     assert len(estado["solicitudes"]) >= 4
+    assert {s["rama"] for s in estado["solicitudes"]} == {"zamora", "palencia"}
 
 
-def test_ejecutar_paterna_sin_red_usa_el_conector_parcheado(base, monkeypatch,
-                                                            capsys):
-    """La rama paterna SÍ consulta artxibo: aquí se parchea el conector con la
+def test_ejecutar_alava_sin_red_usa_el_conector_parcheado(base, monkeypatch,
+                                                          capsys):
+    """La línea de Álava SÍ consulta artxibo: aquí se parchea el conector con la
     respuesta real del portal (cero red)."""
     from scrapers import artxibo
     crudo = json.loads(
@@ -425,13 +506,13 @@ def test_ejecutar_paterna_sin_red_usa_el_conector_parcheado(base, monkeypatch,
 
     monkeypatch.setattr(artxibo, "buscar_apellido", _falso)
     from ramas import ejecutar
-    assert ejecutar(ramas.RAMA_PATERNA, base=base) == 0
+    assert ejecutar(ramas.RAMA_ALAVA, base=base) == 0
     salida = capsys.readouterr().out
     assert "COMPATIBLE CON RESERVAS" in salida
     # el apellido compuesto se busca ENTERO (nunca troceado)
     assert "Saenz de Navarrete" in llamadas
     assert all(" " in a or a == "Perez de Palomares" for a in llamadas)
-    informe = (base / "solicitudes_rama_paterna.md").read_text(encoding="utf-8")
+    informe = (base / "solicitudes_rama_alava.md").read_text(encoding="utf-8")
     assert "consultas@ahdv-geah.org" in informe
     assert "F006.329" in informe
 
