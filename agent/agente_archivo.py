@@ -938,13 +938,15 @@ def investigar(estado: dict, buscar, abrir_ficha=None, preguntar=None, *,
         candidatas.sort(key=lambda par: (par[0][0] != SELLO_PARTIDA,
                                          -(par[1].get("anio") or 0)))
         # Los apellidos que se van a buscar después salen SOLO de los registros
-        # que tocan a la familia: buscando 'Saenz de Navarrete' en Álava salen
-        # decenas de familias homónimas (medido: 82 filas) y coger los apellidos
-        # de todas llenaba la cola de apellidos que no son de nadie de los
-        # nuestros (Martínez de Baños, Muro, Saenz de Olano…). De una fila de la
-        # familia, en cambio, salen los apellidos que SÍ son la línea: los de la
-        # madre y los de la mujer (Dopico, Guzmán, Tellaeche, Aguirre…).
-        for _sello, fila in candidatas:
+        # que certifica la partida (y de los que la IA da por familiares): así
+        # entran los de las mujeres y los de las familias con las que
+        # emparentaron. NO de las filas que solo "cuadran" (2 datos): esas son
+        # coincidencias (un apellido, un año y un pueblo) y llenaban la cola de
+        # apellidos de otras casas (Miranda, Diez, Oquendo…). Los padres que
+        # nombra una partida ya entran con prioridad 1ª en `anotar_progenitor`.
+        for nivel_fila, fila in candidatas:
+            if nivel_fila[0] != SELLO_PARTIDA:
+                continue
             for nuevo in apellidos_de_registro(fila):
                 if apuntar_apellido(estado, nuevo,
                                     f"aparece en una fila de {apellido}",
