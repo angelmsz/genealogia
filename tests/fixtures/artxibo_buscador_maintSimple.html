@@ -1,0 +1,1952 @@
+<!doctype html>
+ 
+
+
+
+
+
+
+
+
+
+
+
+<html class="no-js">
+<head>
+
+	
+		<link rel="alternate" hreflang="eu" href="/webartxi00-container/eu/ad53aArchivoHistoricoWar/sacramentales/maintSimple?locale=eu" />
+		<link rel="alternate" hreflang="es" href="/webartxi00-container/es/ad53aArchivoHistoricoWar/sacramentales/maintSimple?locale=es" />
+	
+
+	<meta http-equiv="Content-Type" content="text/html;charset=UTF-8" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<title>EUSKADIKO ARTXIBO HISTORIKOA</title>
+	<meta name="description" content="">
+  	<meta name="viewport" content="width=device-width, initial-scale=1">
+  	<link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+	
+	
+  
+
+
+
+<link href="/appcont/archivohist/rup/css/rup.css" rel="stylesheet" type="text/css" />
+
+
+
+	
+
+	
+	
+
+<!-- Icono -->
+<link rel="shortcut icon" href="/appcont/archivohist/ad53a/favicon.ico">
+
+<!-- CSS personalizado -->
+<link href="/appcont/archivohist/ad53a/styles/ad53a.css" rel="stylesheet" type="text/css" />
+	<!-- Bootstrap 5 -->
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+	<!-- Slick Slider https://kenwheeler.github.io/slick/ -->
+	<link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.css"/>
+	<link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick-theme.css"/>
+	<!-- Select 2 https://select2.org/ -->
+	<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+	<!-- Custom CSS -->
+	<link rel="stylesheet" href="/appcont/archivohist/ad53a/styles/mk-styles.css">
+	<!-- Visor -->
+	<link rel='stylesheet' href='/appcont/archivohist/ad53a/unitegallery/css/unite-gallery.css' type='text/css' />  
+	<link rel='stylesheet' href='/appcont/archivohist/ad53a/unitegallery/themes/default/ug-theme-default.css' type='text/css' />
+	<link rel='stylesheet' 	href='/appcont/archivohist/ad53a/unitegallery/skins/alexis/alexis.css' type='text/css' />
+	
+	<!-- DATATABLE -->
+<!-- 	<link rel="stylesheet" href="https://cdn.datatables.net/1.10.23/css/jquery.dataTables.min.css"> -->
+	<link rel="stylesheet" href="/appcont/archivohist/ad53a/styles/datatables.min.css">
+	
+	<!-- STEPS -->
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jquery.steps@1.1.1/dist/jquery-steps.min.css">
+	
+	<!-- ICONS -->
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+	
+	<script>
+		// Habilitar el envío de trazas a PIB.
+		window.IS_EJIE = true;
+	</script>
+</head>
+<body>
+	<div class="contenedor">
+		<!-- Cabecera -->
+		
+
+		<!-- Idioma -->
+		
+
+		<!-- Menu -->
+		
+
+		<!-- Migas de pan -->
+		
+
+
+
+
+
+
+
+		<!-- Contenidos -->
+		<div id="ad53aArchivoHistoricoWar_content" class="m-0 clear">
+			
+
+
+
+
+
+
+
+
+
+
+
+
+<style>
+#error-message {
+	max-width: 850px;
+	margin: 20px auto;
+	font-weight: bold;
+	color: #818a91;
+	font-size: 1.25rem;
+}
+
+#error-text {
+	margin-bottom: 0;
+}
+
+.alert {
+	padding: 20px;
+	background-color: #fae3c4;
+	color: #721c24;
+	margin-bottom: 15px;
+}
+
+.closebtn {
+	margin-left: 15px;
+	font-weight: bold;
+	float: right;
+	font-size: 22px;
+	line-height: 20px;
+	cursor: pointer;
+	transition: 0.3s;
+}
+
+.closebtn:hover {
+	color: black;
+}
+/* estilos personalizados de botones */
+.btn-outline-primary {
+	border-color: #218000 !important;
+	color: #218000 !important;
+}
+
+.btn-outline-primary:hover {
+	background-color: #218000 !important;
+	color: white !important;
+}
+
+.btn-outline-primary-active {
+	text-decoration: underline !important;
+	background-color: #218000 !important;
+	color: white !important;
+}
+.ag-center-cols-viewport {
+    min-height: unset !important;
+}
+</style>
+
+<input type="hidden" id="language" value="es">
+<div class="loader-page-sacra">Buscando</div>
+<div class="loader-page-sacra" id="exportCsvLoader"></div>
+<main class="tipo-registros-simple">
+	<div id="feedbackSacraSimple"></div>
+	<!-- Títulos y controles de tipo de búsqueda -->
+	<section class="container mb-3" id="seccion-principal">
+		<div class="d-flex d-flex justify-content-between">
+			<div class="text-left">
+				<button id="simple" type="button" class="btn btn-outline-primary btn-outline-primary-active" style="margin-right: 5px;">
+					Búsqueda Simple
+				</button>
+				<button id="avanzado" type="button" class="btn btn-outline-primary" style="margin-right: 5px;">
+					Búsqueda Avanzada
+				</button>
+				<button id="guiada" type="button" class="btn btn-outline-primary">
+					Búsqueda guiada
+				</button>
+			</div>
+			<div class="azul-acciones text-right registrosscra-enlaces-ayuda">
+				<div class="azul-acciones-accion">
+					<a href="" target="_self" title="xxx" class="boton"
+						data-bs-toggle="modal" data-bs-target="#ModalRegistrosAyuda"><i
+						class="icon-ayuda me-2"></i> <span>Ayuda</span></a>
+				</div>
+				<div class="azul-acciones-accion">
+					<a href="dokuklik-video-tutoriales.php" target="_self" title="xxx"
+						class="boton"><i class="icon-video-tutoriales me-2"></i> <span>Video tutoriales</span></a>
+				</div>
+			</div>
+		</div>
+	</section>
+	<div id="error-message" class="alert" style="display:none;">
+        <button class="closebtn bg-transparent border-0" onclick="this.parentElement.style.display='none';">&times;</button>
+		<p id="error-text"></p>
+	</div>
+	<!-- Búsqueda avanzada -->
+	<section id="buscador-avanzado" style="display: none">
+		
+
+
+
+
+
+
+
+
+
+
+
+	<style>
+  		#error-message{
+  			max-width: 850px;
+		    margin: 20px auto;
+		    font-weight: bold;
+		    color: #818a91;
+		    font-size: 1.25rem;
+  		}
+  		
+  		#error-text{
+  			margin-bottom: 0;
+  		}
+        
+        .alert {
+            padding: 20px;
+            background-color: #fae3c4;
+            color: #721c24;
+            margin-bottom: 15px;
+        }
+        
+        .closebtn {
+            margin-left: 15px;
+            font-weight: bold;
+            float: right;
+            font-size: 22px;
+            line-height: 20px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        
+        .closebtn:hover {
+            color: black;
+        }
+    </style>
+    
+	<input type="hidden" id="language" value="es">
+	<section id="principal-avanzado">
+		<div class="container limitado mx-auto">
+			<div class="row">
+				<div class="col-12">
+					<div id="error-message" class="alert" style="display:none;">
+      				<button class="closebtn bg-transparent border-0" onclick="this.parentElement.style.display='none';">&times;</button>
+					    <p id="error-text"></p>
+					</div>
+					<h2 class="text-center titleDeco mb-4">
+						Buscador Avanzado Registros Sacramentales
+					</h2>
+					<form id="idForm" name="formAvanzado" action="maintResultadosAvanzado" method="POST">
+						<fieldset>
+							<legend class="h4 text-left text-uppercase negrita my-3">Filtrar resultados</legend>
+							<div class="row mb-3">
+								<div class="col-12 col-md-6 mb-3">
+									<label>Tipo de Documento Sacramental</label>
+									<div class="tipo-valores">
+										
+											
+											
+											
+											
+												<label class="container">&nbsp;&nbsp;Bautismo <input id="checkBautismoAvanzado" name="tipoBusqueda" checked="checked" type="checkbox" value="1"/><input type="hidden" name="_tipoBusqueda" value="on"/> <span class="check"></span>
+												</label>
+												<label class="container">&nbsp;&nbsp;Matrimonio <input id="checkMatrimonioAvanzado" name="tipoBusqueda" checked="checked" type="checkbox" value="2"/><input type="hidden" name="_tipoBusqueda" value="on"/> <span class="check"></span>
+												</label>
+												<label class="container">&nbsp;&nbsp;Defunción <input id="checkDefuncionAvanzado" name="tipoBusqueda" checked="checked" type="checkbox" value="3"/><input type="hidden" name="_tipoBusqueda" value="on"/> <span class="check"></span>
+												</label>
+											
+										
+									</div>
+								</div>
+								<div class="col-12 col-md-6 mb-3">
+									<label for="archivoDAvanzado">Archivo Diocesano</label>
+									<select id="archivoDAvanzado" name="archivosDiocesanos" class="w-100" name="archivoD" style="padding: 6px; height: 40px;">
+										<option value="">
+											Todos
+										</option>
+										<option value="3">Bilbao</option><option value="2">San Sebasti&aacute;n</option><option value="1">Vitoria</option>
+									</select>
+								</div>
+							</div>
+							<div class="row mb-3">
+								<div class="col-12 col-md-4 mb-3">
+									
+									<input id="municipiosAvanzado" name="municipioSelected" title="Municipio" style="display: none" type="text" value=""/>
+									<label for="municipioAvanzado">Municipio</label>
+									<select id="municipioAvanzado" name="municipio" class="w-100" style="padding: 6px; height: 40px;">
+									</select>
+								</div>
+								<div class="col-12 col-md-4 mb-3">
+									
+									<input id="localidadesAvanzado" name="localidadSelected" title="Localidad" style="display: none" type="text" value=""/>
+									<label for="localidadAvanzado">Localidad</label>
+									<select id="localidadAvanzado" name="localidad" class="w-100" style="padding: 6px; height: 40px;">
+									</select>
+								</div>
+								<div class="col-12 col-md-4 mb-3">
+									
+									<input id="parroquiasAvanzado" name="parroquiaSelected" title="Parroquia" style="display: none" type="text" value=""/>
+									<label for="parroquiaAvanzado">Parroquia</label>
+									<select id="parroquiaAvanzado" name="parroquia" class="w-100" style="padding: 6px; height: 40px;">
+									</select>
+								</div>
+							</div>
+							<div class="row mb-3">
+								<div class="col-12 col-md-4 mb-3">
+									<label for="anioInicialAvanzado">Año inicial</label>
+									<input id="anioInicialAvanzado" name="anioInicial" name="anioInicial" placeholder="AAAA" class="w-100" type="text" value="" maxlength="4"/>
+								</div>
+	
+								<div class="col-12 col-md-4 mb-3">
+									<label for="anioFinalAvanzado">Año final</label>
+									<input id="anioFinalAvanzado" name="anioFinal" name="anioFinal" placeholder="AAAA" class="w-100" type="text" value="" maxlength="4"/>
+								</div>
+							</div>
+						</fieldset>
+
+					<!-- BAUTISMO -->
+						<fieldset>
+							<legend class="h4 text-left text-uppercase negrita my-3">
+								Bautismo
+							</legend>
+							
+							<div class="mb-4 px-3 tipo-registros-avanzado" id="divBautismoForm">
+								<div class="bautismo">
+									<div class="tipo-registros-avanzado-seccion">
+										Hijo ó hija
+									</div>
+									<div class="row mb-3">
+										<div class="col-12 col-md-4 mb-3">
+											<label for="nombreHijo">Nombre</label>
+											<input id="nombreHijo" name="bautismoHijoNombre" name="nombre-hijo" aria-required="true" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+										</div>
+										<div class="col-12 col-md-4 mb-3">
+											<label for="1apeHijo">1. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="bautismoHijoNombreAndApellido1" name="bautismoHijoNombreAndApellido1" class="select-y" style="min-height: 40px;" aria-label="y/o">
+													
+														
+														
+														
+										 					<option value="1">Y</option>
+										 					<option value="2">O</option>
+													    	
+													
+												</select>
+												<input id="1apeHijo" name="bautismoHijoApellido1" name="1apellido-hijo" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+										<div class="col-12 col-md-4 mb-3">
+											<label for="2apeHijo">2. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="bautismoHijoApellido1AndApellido2" name="bautismoHijoApellido1AndApellido2" class="select-y" style="min-height: 40px;" aria-label="y/o">
+													
+														
+														
+														
+										 					<option value="1">Y</option>
+										 					<option value="2">O</option>
+													    	
+													
+												</select>
+												<input id="2apeHijo" name="bautismoHijoApellido2" name="2apellido-hijo" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+									</div>
+								
+									<div class="d-inline-flex w-100 seccion-select mb-3">
+										<hr>
+										<select id="bautismoHijoAndPadre" name="bautismoHijoAndPadre" class="select-y" style="min-height: 40px;" aria-label="y/o">
+											
+												
+												
+												
+										 			<option value="1">Y</option>
+										 			<option value="2">O</option>
+													
+											
+										</select>
+										<hr>
+									</div>
+								
+									<div class="tipo-registros-avanzado-seccion">
+										Padre
+									</div>
+									<div class="row mb-3">
+										<div class="col-12 col-md-4 mb-3">
+											<label for="nombrePadre">Nombre</label>
+											<input id="nombrePadre" name="bautismoPadreNombre" name="nombre-padre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+										</div>
+										<div class="col-12 col-md-4 mb-3">
+											<label for="1apePadre">1. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="bautismoPadreNombreAndApellido1" name="bautismoPadreNombreAndApellido1" class="select-y" style="min-height: 40px;" aria-label="y/o">
+													
+														
+														
+														
+												 			<option value="1">Y</option>
+												 			<option value="2">O</option>
+															
+													
+												</select>
+												<input id="1apePadre" name="bautismoPadreApellido1" name="1apellido-padre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+										<div class="col-12 col-md-4 mb-3">
+											<label for="2apePadre">2. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="bautismoPadreApellido1AndApellido2" name="bautismoPadreApellido1AndApellido2" class="select-y" style="min-height: 40px;" aria-label="y/o">
+													
+														
+														
+														
+												 			<option value="1">Y</option>
+												 			<option value="2">O</option>
+															
+													
+												</select>
+												<input id="2apePadre" name="bautismoPadreApellido2" name="2apellido-padre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+									</div>
+									
+									<div class="d-inline-flex w-100 seccion-select mb-3">
+										<hr>
+										<select id="bautismoPadreAndMadre" name="bautismoPadreAndMadre" class="select-y" style="min-height: 40px;" aria-label="y/o">
+											
+												
+												
+												
+												 	<option value="1">Y</option>
+												 	<option value="2">O</option>
+													
+											
+										</select>
+										<hr>
+									</div>
+		
+									<div class="tipo-registros-avanzado-seccion">
+										Madre
+									</div>
+									<div class="row mb-3">
+										<div class="col-12 col-md-4 mb-3">
+											<label for="nombreMadre">Nombre</label>
+											<input id="nombreMadre" name="bautismoMadreNombre" name="nombre-madre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+										</div>
+										<div class="col-12 col-md-4 mb-3">
+											<label for="1apeMadre">1. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="bautismoMadreNombreAndApellido1" name="bautismoMadreNombreAndApellido1" class="select-y" style="min-height: 40px;" aria-label="y/o">
+													
+														
+														
+														
+														 	<option value="1">Y</option>
+														 	<option value="2">O</option>
+															
+													
+												</select>
+												<input id="1apeMadre" name="bautismoMadreApellido1" name="1apellido-madre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+										<div class="col-12 col-md-4 mb-3">
+											<label for="2apeMadre">2. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="bautismoMadreApellido1AndApellido2" name="bautismoMadreApellido1AndApellido2" class="select-y" style="min-height: 40px;" aria-label="y/o">
+													
+														
+														
+														
+														 	<option value="1">Y</option>
+														 	<option value="2">O</option>
+															
+													
+												</select>
+												<input id="2apeMadre" name="bautismoMadreApellido2" name="2apellido-madre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</fieldset>
+						<!-- MATRIMONIO -->
+						<fieldset>
+							<legend class="h4 text-left text-uppercase negrita my-3">
+								Matrimonio
+							</legend>
+							<div class="matrimonio">
+								<div class="mb-4 px-3 tipo-registros-avanzado" id="divMatrimonioForm">
+									<div class="tipo-registros-avanzado-seccion">
+										Esposo
+									</div>
+									<div class="row mb-3">
+										<div class="col-12 col-md-4 mb-3">
+											<label for="nombreEsposo">Nombre</label>
+											<input id="nombreEsposo" name="matrimonioEsposoNombre" name="nombre-esposo" aria-required="true" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+										</div>
+										<div class="col-12 col-md-4 mb-3">
+											<label for="1apeEsposo">1. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="matrimonioEsposoNombreAndApellido1" name="matrimonioEsposoNombreAndApellido1" class="select-y" style="min-height: 40px;" aria-label="y/o">
+												
+														
+														
+														
+														 	<option value="1">Y</option>
+														 	<option value="2">O</option>
+															
+													
+												</select>
+												<input id="1apeEsposo" name="matrimonioEsposoApellido1" name="1apellido-esposo" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+										<div class="col-12 col-md-4 mb-3">
+											<label for="2apeEsposo">2. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="matrimonioEsposoApellido1AndApellido2" name="matrimonioEsposoApellido1AndApellido2" class="select-y" style="min-height: 40px;" aria-label="y/o">
+													
+														
+														
+														
+														 	<option value="1">Y</option>
+														 	<option value="2">O</option>
+															
+													
+												</select>
+												<input id="2apeEsposo" name="matrimonioEsposoApellido2" name="2apellido-esposo" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+									</div>
+			
+									<div class="d-inline-flex w-100 seccion-select">
+										<hr>
+										<select id="matrimonioEsposoAndEsposa" name="matrimonioEsposoAndEsposa" class="select-y" style="min-height: 40px;" aria-label="y/o">
+											
+												
+												
+												
+													<option value="1">Y</option>
+													<option value="2">O</option>
+													
+											
+										</select>
+										<hr>
+									</div>
+									<div class="tipo-registros-avanzado-seccion">
+										Esposa
+									</div>
+									<div class="row mb-3">
+										<div class="col-12 col-md-4 mb-3">
+											<label for="nombreEsposa">Nombre</label>
+											<input id="nombreEsposa" name="matrimonioEsposaNombre" name="nombre-esposa" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+										</div>
+			
+										<div class="col-12 col-md-4 mb-3">
+											<label for="1apeEsposa">1. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="matrimonioEsposaNombreAndApellido1" name="matrimonioEsposaNombreAndApellido1" class="select-y" style="min-height: 40px;" aria-label="y/o">
+													
+														
+														
+														
+															<option value="1">Y</option>
+															<option value="2">O</option>
+														
+													
+												</select>
+												<input id="1apeEsposa" name="matrimonioEsposaApellido1" name="1apellido-esposa" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+										<div class="col-12 col-md-4 mb-3">
+											<label for="2apeEsposa">2. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="matrimonioEsposaApellido1AndApellido2" name="matrimonioEsposaApellido1AndApellido2" class="select-y" style="min-height: 40px;" aria-label="y/o">
+													
+														
+														
+														
+															<option value="1">Y</option>
+															<option value="2">O</option>
+														
+													
+												</select>
+												<input id="2apeEsposa" name="matrimonioEsposaApellido2" name="2apellido-esposa" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</fieldset>
+						<!-- DEFUNCION -->
+						<fieldset>
+							<legend class="h4 text-left text-uppercase negrita my-3">
+								Defunción
+							</legend>
+							<div class="defuncion">
+								<div class="mb-4 px-3 tipo-registros-avanzado" id="divDefuncionForm">
+									<div class="tipo-registros-avanzado-seccion">
+										Difunto
+									</div>
+									<div class="row mb-3">
+										<div class="col-12 col-md-4 mb-3">
+											<label for="nombreDifunto">Nombre</label>
+											<input id="nombreDifunto" name="defuncionNombre" name="nombre-difunto" aria-required="true" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+										</div>
+										<div class="col-12 col-md-4 mb-3">
+											<label for="1apeDifunto">1. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="defuncionNombreAndApellido1" name="defuncionNombreAndApellido1" class="select-y" style="min-height: 40px;" aria-label="y/o">
+													
+														
+														
+														
+															<option value="1">Y</option>
+															<option value="2">O</option>
+														
+													
+												</select>
+												<input id="1apeDifunto" name="defuncionApellido1" name="1apellido-difunto" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+										<div class="col-12 col-md-4 mb-3">
+											<label for="2apeDifunto">2. Apellido</label>
+											<div class="input-select d-inline-flex w-100">
+												<select id="defuncionApellido1AndApellido2" name="defuncionApellido1AndApellido2" class="select-y" style="min-height: 40px;" aria-label="y/o">
+													
+														
+														
+														
+															<option value="1">Y</option>
+															<option value="2">O</option>
+														
+													
+													</select>
+												<input id="2apeDifunto" name="defuncionApellido2" name="2apellido-difunto" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</fieldset>
+						<div class="row">
+	              			<div class="col-6">
+	                			<button class="submit float-right"  id="btnBusccar">
+	                  				<i class="icon-lupa"></i> <span>Buscar</span>
+	                			</button>
+	              			</div>
+	              			<div class="col-6">
+								<button type="button" class="reset float-left" onclick="limpiar()" id="resetButton">
+									<i class="mdi mdi-eraser"></i><span>borrar</span>
+								</button>
+							</div>
+	            		</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	</section>
+	
+	<!-- Resultados de búsqueda -->
+	<section id="resultados-busqueda-avanzado" class="container" style="display: none">
+		<div class="cta-back text-left">
+			<a href="#" id="volverAvanzado" target="_self" title="Volver" style="text-decoration: none !important;">
+				<i class="icon-flecha-volver"></i>
+				<span>Volver</span>
+			</a>
+		</div>
+		<div class="container">
+			<h2 class="titleDeco text-center">Resultados de la búsqueda</h2>
+		</div>
+		
+		<div class="container">
+	    	<div class="col" style="text-align: right;">
+				<button id="exportarBusquedaSacra" onclick="exportarSacramentalesCsv()" title="Exportar Búsqueda" style="border:none;cursor:pointer;" class="btn-lg">
+					<i class="mdi mdi-file-delimited" style='color:#3366BB'></i>
+					<span style='color:#3366BB'>Exportar Búsqueda</span>
+				</button>
+				<button style="border:none;" onclick="openMapaAvanzado()" class="btn-lg">
+					<i class="icon-pin" style='color:#3366BB'></i>
+					<span style='color:#3366BB'>Abrir Mapa</span>
+				</button>
+			</div>
+		</div>
+		<div class="container">
+			<div class="row">
+				<div class="col">
+					<div id="visualizarMapaAv"></div>
+				</div>
+			</div>
+		</div>
+	    
+		<div class="container">
+			<div class="row">
+				<div class="col-sm col-md col-lg-2">
+					<form id="sacramento_buscar_avanzado_form" action="/ad53aArchivoHistoricoWar/sacramentales/maintSimple;jsessionid=B1K5uToH_SDDUTsoRwc6N6WZIdlnS7wkekI3QkpCd5QSZB21Wxsn!-1640608163!156580153?R01HPortal=webartxi00&amp;R01HPage=container&amp;R01HLang=es&amp;locale=es" method="POST">
+	                    <fieldset>
+	                    	<legend>Filtrar resultados</legend>
+	                    	<div id="accordionAvanzado">
+		                    	<!-- DIOCESANOS  -->
+		                        <p class="label_checks">Archivo Diocesano</p>
+		                      	<div class="archivos_diocesanos_avanzado" id="checksAvanzadoAccordion"></div>    
+								<!-- MUNICIPIOS  -->
+		                        <p class="label_checks">Municipio</p>
+			                    <div class="municipiosAvanzado" id="checksAvanzadoAccordion"></div>
+								<!-- LOCALIDADES  -->
+			  					<p class="label_checks">Localidad</p>
+			  					<div class="localidadesAvanzado" id="checksAvanzadoAccordion">
+			 					</div>
+								<!-- PARROQUIAS  -->
+			 					<p class="label_checks">Parroquia</p>
+			  					<div class="parroquiasAvanzado" id="checksAvanzadoAccordion">
+			  					</div>
+		                    </div>
+							<div style="margin-top: 20px;">
+		                   		<label>
+		                   			Años
+		                   			<input id="anioInicialAvanzadoAcordeon" name="anioInicial" style="display:none" type="number" value=""/>
+									<input id="anioFinalAvanzadoAcordeon" name="anioFinal" style="display:none" type="number" value=""/>
+		                   		</label>
+		                   		<br>
+		                   		<div>
+		       						<label class="text-center" id="fechasAvanzado" for="slider-range"></label>
+									<div class="col" id="slider-range"></div>
+								</div>
+		                    </div>
+	                    </fieldset>
+	                </form>
+				</div>
+				<div class="col-sm col-md col-lg-10">
+					<div class="mb-3">
+						<button type="button" id="bautismoAvanzado-tab" class="btn btn-outline-primary">Bautismo</button>
+						<button type="button" id="matrimonioAvanzado-tab" class="btn btn-outline-primary">Matrimonio</button>
+						<button type="button" id="defuncionAvanzado-tab" class="btn btn-outline-primary">Defunción</button>
+					</div>
+					<div id=divBautismoAvanzado>
+						
+
+
+
+
+
+
+
+    
+<main class="tipo-registros-resultados con-busqueda-datos">
+<input type="hidden" id="staticsUrl" value="/appcont/archivohist">
+	<table id="resultado" class="display" style="width: 100%">
+		<thead>
+			<tr class="fake-tabla-head">
+				<th class="fake-tabla-item">Fecha<span style="visibility: hidden">fecha</span></th>
+				<th class="fake-tabla-item">Nombre y apellidos</th>
+				<th class="fake-tabla-item">Padre</th>
+				<th class="fake-tabla-item">Madre</th>
+				<th class="fake-tabla-item">Municipio</th>
+				<th class="fake-tabla-item">Localidad</th>
+				<th class="fake-tabla-item">Parroquia</th>
+				<th class="fake-tabla-item">Ficha</th>
+			</tr>
+		</thead>
+	</table>
+</main>
+					</div>
+					<div id="divMatrimonioAvanzado">
+						
+
+
+
+
+
+
+
+    
+<main class="tipo-registros-resultados con-busqueda-datos">
+<input type="hidden" id="staticsUrl" value="/appcont/archivohist">
+	<table id="resultadoMatrimonio" class="display" style="width: 100%">
+		<thead>
+			<tr class="fake-tabla-head">
+				<th class="fake-tabla-item">Fecha<span style="visibility: hidden">fecha</span></th>
+				<th class="fake-tabla-item">Esposo</th>
+				<th class="fake-tabla-item">Esposa</th>
+				<th class="fake-tabla-item">Municipio</th>
+				<th class="fake-tabla-item">Localidad</th>
+				<th class="fake-tabla-item">Parroquia</th>
+				<th class="fake-tabla-item">Ficha</th>
+			</tr>
+		</thead>
+	</table>
+</main>
+					</div>
+					<div id="divDefuncionAvanzado">
+						
+
+
+
+
+
+
+
+    
+<main class="tipo-registros-resultados con-busqueda-datos">
+<input type="hidden" id="staticsUrl" value="/appcont/archivohist">
+	<table id="resultadoDefuncion" class="display" style="width: 100%">
+		<thead>
+			<tr class="fake-tabla-head">
+				<th class="fake-tabla-item">Fecha<span style="visibility: hidden">fecha</span></th>
+				<th class="fake-tabla-item">Nombre y apellidos</th>
+				<th class="fake-tabla-item">Municipio</th>
+				<th class="fake-tabla-item">Localidad</th>
+				<th class="fake-tabla-item">Parroquia</th>
+				<th class="fake-tabla-item">Ficha</th>
+			</tr>
+		</thead>
+	</table>
+</main>
+					</div>
+				</div>
+			</div>
+		</div>
+	</section>
+	</section>
+	<section id="buscador-guiada" style="display: none">
+		
+
+
+
+
+
+
+
+
+
+
+
+
+	<div class="container limitado mx-auto" id="principal-guiada">
+		<div class="row">
+			<div class="col-12">
+				<h2 class="text-center titleDeco mb-4">
+					Búsqueda guiada
+				</h2>
+				<form id="busqueda-guida-form" name="formAvanzado" action="maintResultadosGuiada" method="POST">
+					<div class="step-app" id="pasos">
+						<!-- Pasos -->
+						<ol class="step-steps">
+						    <li data-step-target="step1">1 Nombre y apellidos</li>
+						    <li data-step-target="step2">2 Diócesis</li>
+						    <li data-step-target="step3">3 Municipio</li>
+						    <li data-step-target="step4">4 Localidad</li>
+						    <li data-step-target="step5">5 Parroquia</li>
+						    <li data-step-target="step6">6 Fecha</li>
+						    <li data-step-target="step7">7 Resúmen</li>
+						</ol>
+						<!-- Contenido -->
+			  			<div class="step-content">
+			  				<fieldset class="step-tab-panel" data-step="step1">
+			  					<legend>Nombre y apellidos</legend>
+			  					<div>
+					     			<label>¿Qué tipo de documento sacramental estás buscando?</label>
+									<div class="tipo-valores">
+										<div class="row">
+					  						<div class="col form-check">
+												<input id="radioBautismo" name="tipoBusqueda" checked="checked" class="radioTipoBusqueda" required="true" type="radio" value="1"/>
+												<label class="container" for="radioBautismo">&nbsp;&nbsp;Bautismo</label>
+											</div>
+			  								<div class="w-100"></div>
+					  						<div class="col form-check">
+					  							<input id="radioMatrimonio" name="tipoBusqueda" class="radioTipoBusqueda" required="true" type="radio" value="2"/>
+												<label class="container" for="radioMatrimonio">&nbsp;&nbsp;Matrimonio</label>
+											</div>
+											<div class="w-100"></div>
+					  						<div class="col form-check">
+												<input id="radioDefuncion" name="tipoBusqueda" class="radioTipoBusqueda" required="true" type="radio" value="3"/>
+												<label class="container" for="radioDefuncion">&nbsp;&nbsp;Defunción</label>
+											</div>
+										</div>
+			                		</div>
+	
+					                <label style="margin-top: 20px; margin-bottom: 20px;">¿Conoces algún nombre o apellido?</label>
+	
+					                <!-- BAUTISMO -->
+			                		<div class="tipo-registros" id="divBautismo">
+			                			<div class="container">
+			                				<div class="row mb-3">
+							                	<div class="col tipo-registros-avanzado-seccion">
+													Hijo ó hija
+							                	</div>
+							                	<div class="col tipo-registros-avanzado-seccion">
+													Padre
+							                	</div>
+					                			<div class="col tipo-registros-avanzado-seccion">
+													Madre
+							                	</div>
+						                	</div>
+											<!-- NOMBRES -->
+							            	<div class="row mb-3">
+							                	<div class="col">
+							                		<label for="nombreHijoGuiada">Nombre</label>
+													<input id="nombreHijoGuiada" name="bautismoHijoNombre" name="nombre-hijo" placeholder="Introducir texto..." class="w-100" type="text" value=""/> 
+							                	</div>
+							                	<div class="col">
+							                		<label for="nombrePadreGuiada">Nombre</label>
+													<input id="nombrePadreGuiada" name="bautismoPadreNombre" name="nombre-padre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                	<div class="col">
+							                		<label for="nombreMadreGuiada">Nombre</label>
+													<input id="nombreMadreGuiada" name="bautismoMadreNombre" name="nombre-madre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                </div>
+											<!-- APELLIDOS 1 -->
+							                <div class="row mb-3">
+							                	<div class="col">
+							                		<label for="apellido1Hijo">1. Apellido</label>
+													<input id="apellido1Hijo" name="bautismoHijoApellido1" name="1apellido-hijo" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                	<div class="col">
+							                		<label for="apellido1Padre">1. Apellido</label>
+													<input id="apellido1Padre" name="bautismoPadreApellido1" name="1apellido-padre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                	<div class="col">
+							                		<label for="apellido1Madre">1. Apellido</label>
+													<input id="apellido1Madre" name="bautismoMadreApellido1" name="1apellido-madre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                </div>
+							                <!-- APELLIDOS 2 -->
+							                <div class="row mb-3">
+							                	<div class="col">
+							                		<label for="apellido2Hijo">2. Apellido</label>
+													<input id="apellido2Hijo" name="bautismoHijoApellido2" name="2apellido-hijo" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                	<div class="col">
+							                		<label for="apellido2Padre">2. Apellido</label>
+													<input id="apellido2Padre" name="bautismoPadreApellido2" name="2apellido-padre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                	<div class="col">
+							                		<label for="apellido2Madre">2. Apellido</label>
+													<input id="apellido2Madre" name="bautismoMadreApellido2" name="2apellido-madre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                </div>
+										</div>
+									</div>
+									<!-- MATRIMONIO -->
+									<div class="tipo-registros" id="divMatrimonio">
+			                			<div class="container">
+			                				<div class="row mb-3">
+							                	<div class="col tipo-registros-avanzado-seccion">
+													Esposo
+							                	</div>
+							                	<div class="col tipo-registros-avanzado-seccion">
+													Esposa
+							                	</div>
+			                				</div>
+			                				<!-- NOMBRES -->
+			                				<div class="row mb-3">
+							                	<div class="col">
+							                		<label for="nombreEsposoGuiada">Nombre</label>
+													<input id="nombreEsposoGuiada" name="matrimonioEsposoNombre" name="nombre-esposo" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                	<div class="col">
+							                		<label for="nombreEsposaGuiada">Nombre</label>
+													<input id="nombreEsposaGuiada" name="matrimonioEsposaNombre" name="nombre-esposa" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                </div>
+							                <!-- APELLIDOS 1 -->
+							                <div class="row mb-3">
+							                	<div class="col">
+							                		<label for="apeEsposo1">1. Apellido</label>
+													<input id="apeEsposo1" name="matrimonioEsposoApellido1" name="1apellido-esposo" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                	<div class="col">
+							                		<label for="apeEsposa1">1. Apellido</label>
+							                		<input id="apeEsposa1" name="matrimonioEsposaApellido1" name="1apellido-esposa" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                </div>
+							                <!-- APELLIDOS 2 -->
+							                <div class="row mb-3">
+							                	<div class="col">
+							                		<label for="apeEsposo2">2. Apellido</label>
+													<input id="apeEsposo2" name="matrimonioEsposoApellido2" name="2apellido-esposo" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                	<div class="col">
+							                		<label for="apeEsposa2">2. Apellido</label>
+													<input id="apeEsposa2" name="matrimonioEsposaApellido2" name="2apellido-esposa" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                </div>
+			                			</div>
+									</div>
+									<!-- DEFUNCION -->
+									<div class="tipo-registros" id="divDefuncion">
+			                			<div class="container">
+			                				<div class="row mb-3">
+			                					<div class="col">
+							                		<label for="nombreDifuntoGuiada">Nombre</label>
+													<input id="nombreDifuntoGuiada" name="defuncionNombre" name="nombre-difunto" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                	<div class="col">
+							                		<label for="apeDifunto1">1. Apellido</label>
+													<input id="apeDifunto1" name="defuncionApellido1" name="1apellido-difunto" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+							                	<div class="col">
+							                		<label for="apeDifunto2">2. Apellido</label>
+													<input id="apeDifunto2" name="defuncionApellido2" name="2apellido-difunto" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+							                	</div>
+			                				</div>
+			                			</div>
+									</div>
+					    		</div>
+			  				</fieldset>
+							<!-- PASO 2 -->
+							<fieldset class="step-tab-panel" data-step="step2">
+			  					<legend>Diócesis</legend>
+							    <div>
+							     	<label>¿Sobre que diócesis desea realizar la búsqueda?</label>
+							     	<div class="tipo-valores">
+										<div class="row">
+					  						<div class="col form-check">
+												<input id="radioBilbao" name="archivosDiocesanos" checked="checked" class="archivosD" type="radio" value="3"/>
+												<label class="container" for="radioBilbao">&nbsp;&nbsp;Diócesis de Bilbao</label>
+											</div>
+			  								<div class="w-100"></div>
+					  						<div class="col form-check">
+					  							<input id="radioDonostia" name="archivosDiocesanos" class="archivosD" type="radio" value="2"/>
+												<label class="container" for="radioDonostia">&nbsp;&nbsp;Diócesis de Donostia-San Sebastián</label>
+											</div>
+											<div class="w-100"></div>
+					  						<div class="col form-check">
+												<input id="radioVitoria" name="archivosDiocesanos" class="archivosD" type="radio" value="1"/>
+												<label class="container" for="radioVitoria">&nbsp;&nbsp;Diócesis de Vitoria-Gasteiz</label>
+											</div>
+										</div>
+			                		</div>
+							    </div>
+							</fieldset>
+							<!-- PASO 3 -->
+							<fieldset class="step-tab-panel" data-step="step3">
+			  					<legend>Municipio</legend>
+							    <div>
+							    	<label for="municipioGuiada">¿En qué municipio?</label>
+							    	<div class="tipo-valores">
+										<div class="row">
+											<div class="col">
+												<label for="municipio">Municipio</label>
+											</div>
+										</div>
+									</div>
+									<div class="row">
+										<div class="col-4">
+											
+											<input id="municipiosGuiada" name="municipioSelected" title="Municipio" style="display: none" type="text" value=""/>
+											<select id="municipioGuiada" name="municipio" class="w-100" style="padding: 6px; height: 40px;">
+											</select>
+										</div>
+									</div>
+							    </div>
+						    </fieldset>
+						    <!-- PASO 4 -->
+						    <fieldset class="step-tab-panel" data-step="step4">
+			  					<legend>Localidad</legend>
+							    <div>
+							    	<label for="localidadGuiada">¿En qué localidad?</label>
+							    	<div class="tipo-valores">
+										<div class="row">
+											<div class="col">
+												<label for="localidad">Localidad</label>
+											</div>
+										</div>
+									</div>
+									<div class="row">
+										<div class="col-4">
+											
+											<input id="localidadesGuiada" name="localidadSelected" title="Localidad" style="display: none" type="text" value=""/>
+							                <select id="localidadGuiada" name="localidad" class="w-100" style="padding: 6px; height: 40px;">
+							                	<option value="">---</option>
+							                </select>
+										</div>
+									</div>
+							    </div>
+						    </fieldset>
+						    <!-- PASO 5 -->
+						    <fieldset class="step-tab-panel" data-step="step4">
+			  					<legend>Parroquia</legend>
+							    <div>
+							    	<label for="parroquiaGuiada">¿Sobre que parroquia desea realizar la búsqueda?</label>
+							    	<div class="tipo-valores">
+										<div class="row">
+											<div class="col">
+												<label for="parroquia">Parroquia</label>
+											</div>
+										</div>
+									</div>
+									<div class="row">
+										<div class="col-4">
+											
+											<input id="parroquiasGuiada" name="parroquiaSelected" title="Parroquia" style="display: none" type="text" value=""/>
+											<select id="parroquiaGuiada" name="parroquia" class="w-100" style="padding: 6px; height: 40px;">
+								            	<option value="">---</option>
+											</select>
+										</div>
+									</div>
+							    </div>
+						    </fieldset>
+						    <!-- PASO 6 -->
+						    <fieldset class="step-tab-panel" data-step="step5">
+			  					<legend>Fecha</legend>
+							    <div>
+							    	<label>¿Conoces el rango de fechas de creación del documento?</label>
+							    	<div class="tipo-valores">
+										<div class="row">
+											<div class="col-6">
+					                			<label for=anioIni>Desde año</label>
+					                			<input id="anioIni" name="anioInicial" placeholder="AAAA" class="w-100" type="text" value="" maxlength="4"/>
+		              						</div>
+		              						<div class="col-6">
+		                						<label for="anioFin">Hasta año</label>
+		                						<input id="anioFin" name="anioFinal" placeholder="AAAA" class="w-100" type="text" value="" maxlength="4"/>
+		              						</div>
+										</div>
+									</div>
+							    </div>
+						    </fieldset>
+						    <!-- PASO FINAL -->
+						    <fieldset class="step-tab-panel" data-step="step6">
+			  					<legend>Resúmen</legend>
+							    <div>
+							    	<div style="margin-top: 20px;">
+										<div class="row align-items-start">
+											<div class="col">
+					                			<label for="tipoDocumento">Tipo de Documento:
+					                				<span id="tipoDocumento" style="color:#555555;"></span>
+					                			</label>
+		              						</div>
+		              						<div class="col">
+					                			<label for="anioInicial">Año inicial:
+					                				<span id="anioInicial" style="color:#555555;"></span>
+					                			</label>
+		              						</div>
+		              						<div class="col">
+					                			<label for="anioFinal">Año final:
+					                				<span id="anioFinal" style="color:#555555;"></span>
+					                			</label>
+		              						</div>
+										</div>
+										<div class="row align-items-start">
+											<div class="col">
+												<label for="diocesis">Diócesis:
+					                				<span id="diocesis" style="color:#555555;"></span>
+					                			</label>
+											</div>
+											<div class="col">
+												<label for="resumenMunicipio">Municipio:
+					                				<span id="resumenMunicipio" style="color:#555555;"></span>
+					                			</label>
+											</div>
+										</div>
+										<div class="row align-items-start">
+											<div class="col">
+												<label for="resumenLocalidad">Localidad:
+					                				<span id="resumenLocalidad" style="color:#555555;"></span>
+					                			</label>
+											</div>
+											<div class="col">
+												<label for="resumenParroquia">Parroquia:
+					                				<span id="resumenParroquia" style="color:#555555;"></span>
+					                			</label>
+											</div>
+										</div>
+										<div class="row align-items-start" id=resumenDivBautismo>
+											<div class="col">
+												<label for="resumenHijo">Nombre hijo:
+					                				<span id="resumenHijo" style="color:#555555;"></span>
+					                				<span id="resumenApeHijo1" style="color:#555555;"></span>
+					                				<span id="resumenApeHijo2" style="color:#555555;"></span>
+					                			</label>
+											</div>
+											<div class="col">
+												<label for="resumenPadre">Nombre padre:
+					                				<span id="resumenPadre" style="color:#555555;"></span>
+					                				<span id="resumenApePadre1" style="color:#555555;"></span>
+					                				<span id="resumenApePadre2" style="color:#555555;"></span>
+					                			</label>
+											</div>
+											<div class="col">
+												<label for="resumenMadre">Nombre madre:
+					                				<span id="resumenMadre" style="color:#555555;"></span>
+					                				<span id="resumenApeMadre1" style="color:#555555;"></span>
+					                				<span id="resumenApeMadre2" style="color:#555555;"></span>
+					                			</label>
+											</div>
+										</div>
+										<div class="row align-items-start" id=resumenDivMatrimonio>
+											<div class="col">
+												<label for="resumenEsposo">Nombre esposo:
+					                				<span id="resumenEsposo" style="color:#555555;"></span>
+					                				<span id="resumenApeEsposo1" style="color:#555555;"></span>
+					                				<span id="resumenApeEsposo2" style="color:#555555;"></span>
+					                			</label>
+											</div>
+											<div class="col">
+												<label for="resumenEsposa">Nombre esposa:
+					                				<span id="resumenEsposa" style="color:#555555;"></span>
+					                				<span id="resumenApeEsposa1" style="color:#555555;"></span>
+					                				<span id="resumenApeEsposa2" style="color:#555555;"></span>
+					                			</label>
+											</div>
+										</div>
+										<div class="row align-items-start" id=resumenDivDefuncion>
+											<div class="col">
+												<label for="resumenDifunto">Nombre:
+					                				<span id="resumenDifunto" style="color:#555555;"></span>
+					                				<span id="resumenApeDifunto1" style="color:#555555;"></span>
+					                				<span id="resumenApeDifunto2" style="color:#555555;"></span>
+					                			</label>
+											</div>
+										</div>
+									</div>
+							    </div>
+			  				</fieldset>
+			  			</div>
+						<div class="step-footer">
+							<div class="row">
+								<div class="col">
+									<button data-step-action="prev" class="btn btn-outline-secondary">Regresar</button>
+								</div>
+								<div class="col">
+									<button data-step-action="next" class="btn btn-outline-success" style="float: right;">Continuar con la guía</button>
+								</div>
+							</div>
+							<button class="submit center mt-3">
+								<i class="icon-lupa"></i> <span>Buscar</span>
+							</button>
+					  	</div>
+					</div>
+					
+<!-- 					<div class="azul-acciones text-center registrosscra-enlaces-alternativos"> -->
+<!-- 	              		<div class="azul-acciones-accion"> -->
+
+
+
+<!-- 							</a> -->
+<!-- 						</div> -->
+<!-- 	              		<div class="azul-acciones-accion"> -->
+
+
+<!-- 	              		</div> -->
+<!-- 	              		<div class="azul-acciones-accion"> -->
+
+<!-- 	              		</div> -->
+<!-- 	            	</div> -->
+				</form>
+			</div>
+		</div>
+	</div>
+	
+	<!-- Resultados de búsqueda -->
+	<section id="resultados-busqueda-guiada" class="container" style="display: none">
+		<div class="cta-back text-left">
+			<a href="#" id="volverGuiada" target="_self" title="Volver" style="text-decoration: none !important;">
+				<i class="icon-flecha-volver"></i>
+				<span>Volver</span>
+			</a>
+		</div>
+		<div class="container">
+			<h2 class="titleDeco text-center">Resultados de la búsqueda</h2>
+		</div>
+		
+		<div class="container">
+	    	<div class="col" style="text-align: right;">
+				<button id="exportarBusquedaSacra" onclick="exportarSacramentalesCsv()" title="Exportar Búsqueda" style="border:none;cursor:pointer;" class="btn-lg">
+					<i class="mdi mdi-file-delimited" style='color:#3366BB'></i>
+					<span style='color:#3366BB'>Exportar Búsqueda</span>
+				</button>
+				<button style="border:none;" onclick="openMapaGuiado()" class="btn-lg">
+					<i class="icon-pin" style='color:#3366BB'></i>
+					<span style='color:#3366BB'>Abrir Mapa</span>
+				</button>
+			</div>
+		</div>
+		<div class="container">
+			<div class="row">
+				<div class="col">
+					<div id="visualizarMapaGui"></div>
+				</div>
+			</div>
+		</div>
+		
+		<div class="container">
+			<div class="row">
+				<div class="col-sm col-md col-lg-2">
+	                <form id="sacramento_buscar_guiada_form" action="/ad53aArchivoHistoricoWar/sacramentales/maintSimple;jsessionid=B1K5uToH_SDDUTsoRwc6N6WZIdlnS7wkekI3QkpCd5QSZB21Wxsn!-1640608163!156580153?R01HPortal=webartxi00&amp;R01HPage=container&amp;R01HLang=es&amp;locale=es" method="POST">
+	                    <fieldset>
+	                    	<legend>Filtrar resultados</legend>
+	                    	<div id="accordionGuiada">
+		                        <p class="label_checks">Archivo Diocesano</p>
+		                        <div class="archivos_diocesanos_guiada" id="checksGuiadaAccordion"></div>
+								<!-- MUNICIPIOS  -->
+		                        <p class="label_checks">Municipio</p>
+			                    <div class="municipiosGuiada" id="checksGuiadaAccordion"></div>
+								<!-- LOCALIDADES  -->
+			  					<p class="label_checks">Localidad</p>
+			  					<div class="localidadesGuiada" id="checksGuiadaAccordion">
+			 					</div>
+								<!-- PARROQUIAS  -->
+			 					<p class="label_checks">Parroquia</p>
+			  					<div class="parroquiasGuiada" id="checksGuiadaAccordion">
+			  					</div>
+		                    </div>	                    
+		                    <div style="margin-top: 20px;">
+		                   		<label>
+		                   			Años
+		                   			<input id="anioInicialGuiadaAcordeon" name="anioInicial" style="display:none" type="number" value=""/>
+									<input id="anioFinalGuiadaAcordeon" name="anioFinal" style="display:none" type="number" value=""/>
+		                   		</label>
+		                   		<br>
+		                   		<div>
+		       						<label class="text-center" id="fechasGuiada" for="slider-range-guiada"></label>
+									<div class="col" id="slider-range-guiada"></div>
+								</div>
+		                    </div>
+	                    </fieldset>
+	                </form>
+	            </div>
+				<div class="col-sm col-md col-lg-10">
+					<div class="mb-3">
+						<button type="button" id="bautismoGuiada-tab" class="btn btn-outline-primary">Bautismo</button>
+						<button type="button" id="matrimonioGuiada-tab" class="btn btn-outline-primary">Matrimonio</button>
+						<button type="button" id="defuncionGuiada-tab" class="btn btn-outline-primary">Defunción</button>
+					</div>
+					<div id=divBautismoGuiada>
+						
+
+
+
+
+
+
+
+   
+<div class="tipo-registros-resultados con-busqueda-datos">
+<input type="hidden" id="staticsUrl" value="/appcont/archivohist">
+	<table id="resultadoGuiada" class="display" style="width: 100%">
+		<thead>
+			<tr class="fake-tabla-head">
+				<th class="fake-tabla-item">Fecha<span style="visibility: hidden">fecha</span></th>
+				<th class="fake-tabla-item">Nombre y apellidos</th>
+				<th class="fake-tabla-item">Padre</th>
+				<th class="fake-tabla-item">Madre</th>
+				<th class="fake-tabla-item">Municipio</th>
+				<th class="fake-tabla-item">Localidad</th>
+				<th class="fake-tabla-item">Parroquia</th>
+				<th class="fake-tabla-item">Ficha</th>
+			</tr>
+		</thead>
+	</table>
+</div>
+					</div>
+					<div id="divMatrimonioGuiada">
+						
+
+
+
+
+
+
+
+    
+<main class="tipo-registros-resultados con-busqueda-datos">
+<input type="hidden" id="staticsUrl" value="/appcont/archivohist">
+	<table id="resultadoMatrimonioGuiada" class="display" style="width: 100%">
+		<thead>
+			<tr class="fake-tabla-head">
+				<th class="fake-tabla-item">Fecha<span style="visibility: hidden">fecha</span></th>
+				<th class="fake-tabla-item">Esposo</th>
+				<th class="fake-tabla-item">Esposa</th>
+				<th class="fake-tabla-item">Municipio</th>
+				<th class="fake-tabla-item">Localidad</th>
+				<th class="fake-tabla-item">Parroquia</th>
+				<th class="fake-tabla-item">Ficha</th>
+			</tr>
+		</thead>
+	</table>
+</main>
+					</div>
+					<div id="divDefuncionGuiada">
+						
+
+
+
+
+
+
+
+    
+<main class="tipo-registros-resultados con-busqueda-datos">
+<input type="hidden" id="staticsUrl" value="/appcont/archivohist">
+	<table id="resultadoDefuncionGuiada" class="display" style="width: 100%">
+		<thead>
+			<tr class="fake-tabla-head">
+				<th class="fake-tabla-item">Fecha<span style="visibility: hidden">fecha</span></th>
+				<th class="fake-tabla-item">Nombre y apellidos</th>
+				<th class="fake-tabla-item">Municipio</th>
+				<th class="fake-tabla-item">Localidad</th>
+				<th class="fake-tabla-item">Parroquia</th>
+				<th class="fake-tabla-item">Ficha</th>
+			</tr>
+		</thead>
+	</table>
+</main>
+					</div>
+				</div>
+			</div>
+		</div>
+	</section>
+	</section>
+	<!-- Búsqueda simple -->
+	<section id="buscador-simple">
+		<div id="error-message" class="alert" style="display: none;">
+	        <button class="closebtn bg-transparent border-0" onclick="this.parentElement.style.display='none';">&times;</button>
+			<p id="error-text"></p>
+		</div>
+		<div class="container limitado mx-auto">
+			<div class="row">
+				<div class="col-12">
+					<h1 class="text-center titleDeco mb-4">
+						Buscador Simple Registros Sacramentales
+					</h1>
+
+					<div class="buscador-scra-simple">
+						<form id="sacramentales_simple_form" action="/ad53aArchivoHistoricoWar/sacramentales/maintSimple;jsessionid=B1K5uToH_SDDUTsoRwc6N6WZIdlnS7wkekI3QkpCd5QSZB21Wxsn!-1640608163!156580153?R01HPortal=webartxi00&amp;R01HPage=container&amp;R01HLang=es&amp;locale=es" method="POST">
+							<fieldset>
+								<legend class="h4 text-left text-uppercase negrita my-3">Filtrar resultados</legend>
+								<div class="row mb-3">
+									<div class="col-12 col-md-6 mb-3">
+										<label for="tipoValoresContainer">Tipo de Documento Sacramental</label>
+										<div class="tipo-valores" id="tipoValoresContainer">
+											<label class="container">  Bautismo
+												<input id="checkBautismo" name="tipoBusqueda" checked="true" type="checkbox" value="1"/><input type="hidden" name="_tipoBusqueda" value="on"/><span class="check"></span>
+											</label>
+											<label class="container">  Matrimonio
+												<input id="checkMatrimonio" name="tipoBusqueda" checked="true" type="checkbox" value="2"/><input type="hidden" name="_tipoBusqueda" value="on"/><span class="check"></span>
+											</label>
+											<label class="container">  Defunción
+												<input id="checkDefuncion" name="tipoBusqueda" checked="true" type="checkbox" value="3"/><input type="hidden" name="_tipoBusqueda" value="on"/><span class="check"></span>
+											</label>
+										</div>
+									</div>
+									<div class="col-12 col-md-6 mb-3">
+										<label for="archivoD">Archivo Diocesano</label>
+										<select id="archivoD" name="archivosDiocesanos" class="w-100" name="archivoD" style="padding: 6px; height: 40px;">
+											<option value="">
+												Todos
+											</option>
+											<option value="3">Bilbao</option><option value="2">San Sebasti&aacute;n</option><option value="1">Vitoria</option>
+										</select>
+									</div>
+								</div>
+	
+								<div class="row mb-3">
+									<div class="col-12 col-md-4 mb-3">
+										<label for="nombre">Nombre</label>
+										<input id="nombre" name="bautismoHijoNombre" name="nombre" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+									</div>
+	
+									<div class="col-12 col-md-4 mb-3">
+										<label for="1apellido">1. Apellido</label>
+										<input id="1apellido" name="bautismoHijoApellido1" name="1apellido" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+									</div>
+	
+									<div class="col-12 col-md-4 mb-3">
+										<label for="2apellido">2. Apellido</label>
+										<input id="2apellido" name="bautismoHijoApellido2" name="2apellido" placeholder="Introducir texto..." class="w-100" type="text" value=""/>
+									</div>
+								</div>
+	
+								<div class="row mb-3">
+									<div class="col-12 col-md-4 mb-3">
+										
+										<input id="municipios" name="municipioSelected" title="Municipio" style="display: none" type="text" value=""/>
+										<label for="municipio">Municipio</label>
+										<select id="municipio" name="municipio" class="w-100" style="padding: 6px; height: 40px;">
+										</select>
+									</div>
+	
+									<div class="col-12 col-md-4 mb-3">
+										
+										<input id="localidades" name="localidadSelected" title="Localidad" style="display: none" type="text" value=""/>
+										<label for="localidad">Localidad</label>
+										<select id="localidad" name="localidad" class="w-100" style="padding: 6px; height: 40px;">
+										</select>
+									</div>
+	
+									<div class="col-12 col-md-4 mb-3">
+										
+										<input id="parroquias" name="parroquiaSelected" title="Parroquia" style="display: none" type="text" value=""/>
+										<label for="parroquia">Parroquia</label>
+										<select id="parroquia" name="parroquia" class="w-100" style="padding: 6px; height: 40px;">
+										</select>
+									</div>
+								</div>
+	
+								<div class="row mb-3">
+									<div class="col-12 col-md-4 mb-3">
+										<label for="anioInicialSimple">Año inicial</label>
+										<input id="anioInicialSimple" name="anioInicial" placeholder="AAAA" class="w-100" type="text" value="" maxlength="4"/>
+									</div>
+									<div class="col-12 col-md-4 mb-3">
+										<label for="anioFinalSimple">Año final</label>
+										<input id="anioFinalSimple" name="anioFinal" placeholder="AAAA" class="w-100" type="text" value="" maxlength="4"/>
+									</div>
+								</div>
+							</fieldset>
+	
+							<div class="row">
+								<div class="col-6">
+									<button class="submit float-right" id="btnBusccar">
+										<i class="icon-lupa"></i>
+										<span>Buscar</span>
+									</button>
+								</div>
+								<div class="col-6">
+									<button type="button" class="reset float-left" id="reset-simple-form">
+										<i class="mdi mdi-eraser"></i>
+										<span>borrar</span>
+									</button>
+								</div>
+							</div>
+							<div class="azul-acciones text-center registrosscra-enlaces-alternativos">
+<!-- 								<div class="azul-acciones-accion"> -->
+
+
+
+
+
+
+<!-- 								</div> -->
+<!-- 								<div class="azul-acciones-accion"> -->
+
+
+
+
+
+
+<!-- 								</div> -->
+								<div class="azul-acciones-accion">
+									<a href="/que-son-los-registros-sacramentales/webartxi00-container/es/" target="_self"
+										title="xxx" class="boton"><span>¿Qué es Registros Sacramentales?</span></a>
+								</div>
+							</div>
+						</form>
+					</div>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<!-- Resultados de búsqueda -->
+	<section id="resultados-busqueda" class="container" style="display: none">
+	<div class="cta-back text-left">
+		<a href="#" id="volverSimple" target="_self" title="Volver" style="text-decoration: none !important;">
+			<i class="icon-flecha-volver"></i>
+			<span>Volver</span>
+		</a>
+	</div>
+	
+    <div class="container">
+    	<h2 class="titleDeco text-center">Resultados de la búsqueda</h2>
+    </div>
+    
+	<div class="container">
+    	<div class="col" style="text-align: right;">
+			<button id="exportarBusquedaSacra" onclick="exportarSacramentalesCsv()" title="Exportar Búsqueda" style="border:none;cursor:pointer;" class="btn-lg">
+				<i class="mdi mdi-file-delimited" style='color:#3366BB'></i>
+				<span style='color:#3366BB'>Exportar Búsqueda</span>
+			</button>
+			<button style="border:none;" onclick="openmapa()" class="btn-lg">
+				<i class="icon-pin" style='color:#3366BB'></i>
+				<span style='color:#3366BB'>Abrir Mapa</span>
+			</button>
+		</div>
+	</div>
+	<div class="container">
+		<div class="row">
+			<div class="col">
+				<div id="visualizarMapa"></div>
+			</div>
+		</div>
+	</div>
+
+    <div class="container">
+        <div class="row">
+            <div class="col-sm col-md col-lg-2">
+                <form id="sacramento_buscar_simple_form" action="/ad53aArchivoHistoricoWar/sacramentales/maintSimple;jsessionid=B1K5uToH_SDDUTsoRwc6N6WZIdlnS7wkekI3QkpCd5QSZB21Wxsn!-1640608163!156580153?R01HPortal=webartxi00&amp;R01HPage=container&amp;R01HLang=es&amp;locale=es" method="POST">
+                    <fieldset>
+                    	<legend>Filtrar resultados</legend>
+                    	<div id="accordionSimple">
+	                        <span class="label_checks">Archivo Diocesano</span>
+							<div class="archivos_diocesanos" id="checksAccordion"></div>
+							<!-- MUNICIPIOS -->
+							<span class="label_checks">Municipio</span>
+		                    <div class="municipios" id="checksAccordion"></div>
+		  					<!--  LOCALIDADES  -->
+							<span class="label_checks">Localidad</span>
+		  					<div class="localidades" id="checksAccordion"></div>
+		 					<!--  PARROQUIAS  -->
+							<span class="label_checks" >Parroquia</span>
+		  					<div class="parroquias" id="checksAccordion"></div>
+	                    </div>
+	                    <div style="margin-top: 20px;">
+	                   		<label>
+	                   			Años
+	                   			<input id="anioInicialAcordeon" name="anioInicial" style="display:none" type="number" value=""/>
+								<input id="anioFinalAcordeon" name="anioFinal" style="display:none" type="number" value=""/>
+	                   		</label>
+	                   		<br>
+	                   		<div>
+	       						<label class="text-center" id="fechasSimple" for="slider-range-simple"></label>
+								<div class="col" id="slider-range-simple"></div>
+							</div>
+	                    </div>
+                    </fieldset>
+                </form>
+            </div>
+            <div class="col-sm col-md col-lg-10">
+                <div class="mb-3" style="margin-top: 2px; margin-bottom: 0 !important;">
+                    <button type="button" id="bautismo-tab" class="btn btn-outline-primary">Bautismo</button>
+                    <button type="button" id="matrimonio-tab" class="btn btn-outline-primary">Matrimonio</button>
+                    <button type="button" id="defuncion-tab" class="btn btn-outline-primary">Defunción</button>
+                </div>
+                <div id="divBautismoSimple">
+                    
+
+
+
+
+
+
+
+
+<main class="tipo-registros-resultados con-busqueda-datos">
+	<input type="hidden" id="staticsUrl" value="/appcont/archivohist">
+	<table id="resultadoB" class="display" style="width: 100%">
+		<thead>
+			<tr class="fake-tabla-head">
+				<th class="fake-tabla-item">Fecha<span style="visibility: hidden">fecha</span></th>
+				<th class="fake-tabla-item">Nombre y apellidos</th>
+				<th class="fake-tabla-item">Padre</th>
+				<th class="fake-tabla-item">Madre</th>
+				<th class="fake-tabla-item">Municipio</th>
+				<th class="fake-tabla-item">Localidad</th>
+				<th class="fake-tabla-item">Parroquia</th>
+				<th class="fake-tabla-item">Ficha</th>
+			</tr>
+		</thead>
+	</table>
+</main>
+                </div>
+                <div id="divMatrimonioSimple">
+                    
+
+
+
+
+
+
+
+    
+<main class="tipo-registros-resultados con-busqueda-datos">
+<input type="hidden" id="staticsUrl" value="/appcont/archivohist">
+	<table id="resultadoMatrimonioSimple" class="display" style="width: 100%">
+		<thead>
+			<tr class="fake-tabla-head">
+				<th class="fake-tabla-item">Fecha<span style="visibility: hidden">fecha</span></th>
+				<th class="fake-tabla-item">Esposo</th>
+				<th class="fake-tabla-item">Esposa</th>
+				<th class="fake-tabla-item">Municipio</th>
+				<th class="fake-tabla-item">Localidad</th>
+				<th class="fake-tabla-item">Parroquia</th>
+				<th class="fake-tabla-item">Ficha</th>
+			</tr>
+		</thead>
+	</table>
+</main>
+                </div>
+                <div id="divDefuncionSimple">
+                    
+
+
+
+
+
+
+
+    
+<main class="tipo-registros-resultados con-busqueda-datos">
+<input type="hidden" id="staticsUrl" value="/appcont/archivohist">
+	<table id="resultadoDefuncionSimple" class="display" style="width: 100%">
+		<thead>
+			<tr class="fake-tabla-head">
+				<th class="fake-tabla-item">Fecha<span style="visibility: hidden">fecha</span></th>
+				<th class="fake-tabla-item">Nombre y apellidos</th>
+				<th class="fake-tabla-item">Municipio</th>
+				<th class="fake-tabla-item">Localidad</th>
+				<th class="fake-tabla-item">Parroquia</th>
+				<th class="fake-tabla-item">Ficha</th>
+			</tr>
+		</thead>
+	</table>
+</main>
+                </div>
+            </div>
+        </div>
+    </div>
+	</section>
+
+	<hr class="mt-5">
+
+	<section id="scra-enlaces-interes" class="section scra-enlaces-interes">
+		<h2 class="text-center titleDeco mb-4">
+			Enlaces de interés
+		</h2>
+		
+		
+		
+		<div class="container limitado mx-auto">
+			<div class="row">
+				<div class="col-12 col-md-4 mb-5 enlaces-interes">
+					<a class="enlaces-interes-imagen" href="https://ahdv-geah.org/?_HDIV_STATE_=7C540114-20-0-08FD9236554482767DCB110B5773F80A"
+						target="_blank"> <img
+						src="/appcont/archivohist/ad53a/images/vitoria.png"
+						alt="Archivo Histórico Diocesano de Vitoria"
+						title="Archivo Histórico Diocesano de Vitoria">
+					</a>
+					<div class="enlaces-interes-texto">
+						Archivo Histórico Diocesano de Vitoria
+					</div>
+					<div class="enlaces-interes-cta">
+						<a href="https://ahdv-geah.org/?_HDIV_STATE_=7C540114-20-0-08FD9236554482767DCB110B5773F80A" target="_blank"
+							class="enlaces-interes-link"
+							title="Archivo Histórico Diocesano de Vitoria">
+							<div class="enlaces-interes-cta">
+								<span>Visitar web</span> <i
+									class="icon-flecha-cta"></i>
+							</div>
+						</a>
+					</div>
+				</div>
+				<div class="col-12 col-md-4 mb-5 enlaces-interes">
+					<a class="enlaces-interes-imagen" href="https://artxiboa.mendezmende.org/eu/?_HDIV_STATE_=7C540114-20-1-08FD9236554482767DCB110B5773F80A"
+						target="_blank"> <img
+						src="/appcont/archivohist/ad53a/images/sanSebastian.png"
+						alt="Archivo Histórico Diocesano de San Sebastián"
+						title="Archivo Histórico Diocesano de San Sebastián">
+					</a>
+					<div class="enlaces-interes-texto">
+						Archivo Histórico Diocesano de San Sebastián
+					</div>
+					<div class="enlaces-interes-cta">
+						<a href="https://artxiboa.mendezmende.org/eu/?_HDIV_STATE_=7C540114-20-1-08FD9236554482767DCB110B5773F80A" target="_blank"
+							class="enlaces-interes-link"
+							title="Archivo Histórico Diocesano de San Sebastián">
+							<div class="enlaces-interes-cta">
+								<span>Visitar web</span> <i
+									class="icon-flecha-cta"></i>
+							</div>
+						</a>
+					</div>
+				</div>
+				<div class="col-12 col-md-4 mb-5 enlaces-interes">
+					<a class="enlaces-interes-imagen" href="https://internet.aheb-beha.org/paginas/indexacion/n_indexacion.php?_HDIV_STATE_=7C540114-20-2-08FD9236554482767DCB110B5773F80A"
+						target="_blank"> <img
+						src="/appcont/archivohist/ad53a/images/bizkaia.png"
+						alt="Archivo Histórico Eclesiástico de Bizkaia"
+						title="Archivo Histórico Eclesiástico de Bizkaia">
+					</a>
+					<div class="enlaces-interes-texto">
+						Archivo Histórico Eclesiástico de Bizkaia
+					</div>
+					<div class="enlaces-interes-cta">
+						<a href="https://internet.aheb-beha.org/paginas/indexacion/n_indexacion.php?_HDIV_STATE_=7C540114-20-2-08FD9236554482767DCB110B5773F80A" target="_blank"
+							title="Archivo Histórico Eclesiástico de Bizkaia"
+							class="enlaces-interes-link">
+							<div class="enlaces-interes-cta">
+								<span>Visitar web</span> <i
+									class="icon-flecha-cta"></i>
+							</div>
+						</a>
+					</div>
+				</div>
+			</div>
+		</div>
+	</section>
+</main>
+
+		</div>
+
+		<!-- Pie -->
+		
+
+		<!-- Includes JS -->
+		
+ 
+
+
+
+
+
+
+
+
+
+
+
+<!-- Include de los elementos comunes -->
+<script type="text/javascript">
+	// Añadir una variable para determinar si se hacen o no las trazas
+	IS_EJIE = true,
+	APP_RESOURCES = 'ad53a',
+	CTX_PATH = '/ad53aArchivoHistoricoWar/',
+	STATICS = '/appcont/archivohist',
+	RUP = '/appcont/archivohist/rup',
+	WAR_NAME = 'ad53aArchivoHistorico',
+	//model
+	LAYOUT = 'horizontal',
+	//mvc-config.xml
+	LOCALE_COOKIE_NAME = 'language',
+	LOCALE_PARAM_NAME = 'locale',
+	AVAILABLE_LANGS = 'es, eu, en',
+	//breadCrumbs
+	LOGGED_USER = 'NULL',
+	DESTROY_XLNETS_SESSION = '',
+	PORTAL_BADATOR = 'webartxi00-container';
+</script>
+
+
+
+ 
+
+
+
+<script src="/appcont/archivohist/rup/js/rup.js" type="text/javascript"></script>
+
+
+<!-- Cargador del layout para el idioma, menu y migas -->
+<script src="/appcont/archivohist/ad53a/scripts/ad53aArchivoHistorico/_layoutLoader.js" type="text/javascript"></script>
+
+		
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" type="text/css" href="https://www.geo.euskadi.eus/bisorea/v3/css/GeoeuskadiLoadingSplash_c.css" />
+<!--  CORE -->
+<script type="text/javascript" src="https://www.geo.euskadi.eus/bisorea/v3/js/main-compiled.js"></script>
+<!-- Variables globales de la aplicacion -->
+<script type="text/javascript" src="https://www.geo.euskadi.eus/bisorea/v3/js/imports_lite.js"></script>
+
+<script src="/appcont/archivohist/ad53a/scripts/ad53aArchivoHistorico/paginacionCustom.js" type="text/javascript"></script>
+<script src="/appcont/archivohist/ad53a/scripts/ad53aArchivoHistorico/sacramentales/sacramentales.js" type="text/javascript"></script>
+<script src="/appcont/archivohist/ad53a/scripts/ad53aArchivoHistorico/sacramentales/sacramentalesSimple.js" type="text/javascript"></script>
+
+<script src="/appcont/archivohist/ad53a/scripts/ad53aArchivoHistorico/sacramentales/sacramentalesAvanzado.js" type="text/javascript"></script>
+<script src="/appcont/archivohist/ad53a/scripts/ad53aArchivoHistorico/sacramentales/sacramentalesTablaAvanzado.js" type="text/javascript"></script>
+
+<script src="/appcont/archivohist/ad53a/scripts/ad53aArchivoHistorico/sacramentales/sacramentalesGuiada.js" type="text/javascript"></script>
+<script src="/appcont/archivohist/ad53a/scripts/ad53aArchivoHistorico/sacramentales/sacramentalesTablaGuiada.js" type="text/javascript"></script>
+
+<script src="/appcont/archivohist/ad53a/scripts/ad53aArchivoHistorico/sacramentales/sacramentalesExportCsv.js" type="text/javascript"></script>
+																		 
+<script type="text/javascript">
+	var strings = new Array();
+	strings['sacramentales.simple'] = "Debe proporcionar al menos un tipo de documento sacramental";
+	strings['sacramentales.simple2'] = "Debe proporcionar algún dato adicional además del tipo de sacramento para poder realizar la búsqueda";
+	strings['sacramentales.fechaSacramental'] = "fechaSacramental";
+	strings['sacramentales.nombreyapellidos'] = "Nombre y apellidos";
+	strings['sacramentales.scraPadre'] = "Padre";
+	strings['sacramentales.scraMadre'] = "Madre";
+	strings['sacramentales.municipio'] = "Municipio";
+	strings['sacramentales.localidad'] = "Localidad";
+	strings['sacramentales.scraParroquia'] = "Parroquia";
+	strings['sacramentales.scraFicha'] = "Ficha";
+	strings['sacramentales.esposo'] = "Esposo";
+	strings['sacramentales.esposa'] = "Esposa";
+	
+	strings['busquedaGuiada.bautismo'] = "Bautismo";
+	strings['busquedaGuiada.matrimonio'] = "Matrimonio";
+	strings['busquedaGuiada.defuncion'] = "Defunción";
+	strings['busquedaGuiada.bilbao'] = "Diócesis de Bilbao";
+	strings['busquedaGuiada.donostia'] = "Diócesis de Donostia-San Sebastián";
+	strings['busquedaGuiada.vitoria'] = "Diócesis de Vitoria-Gasteiz";
+	
+	strings['scraLatitud'] = "Latitud";
+	strings['scraLongitud'] = "Longitud";
+</script>
+	</div>
+</body>
+<footer>
+	
+	<script>
+	  // Asignar la versión original de jQuery a una variable
+	  var jqueryApp = $;
+	</script>
+	
+	<!-- Bootstrap 5 -->
+	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+	<!-- JQuery -->
+<!-- 	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script> -->
+	
+	<!-- JQuery UI -->
+<!-- 	<script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script> -->
+	
+	<!-- Slick Slider https://kenwheeler.github.io/slick/ -->
+	<script type="text/javascript" src="//cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.min.js"></script>
+
+	<!-- Select 2 https://select2.org/ -->
+	<script src="/appcont/archivohist/ad53a/scripts/select2.min.js" async defer></script>
+	
+	<!-- Custom JS -->
+	<script src="/appcont/archivohist/ad53a/scripts/mk-scripts.js" async defer></script>
+	
+	<!-- utils -->
+	<script src="/appcont/archivohist/ad53a/scripts/utils/utils.js" async defer></script>
+	<!-- pdfMake -->
+	<script type='text/javascript' src='/appcont/archivohist/ad53a/pdfmake/build/pdfmake.min.js'></script>
+	<script type='text/javascript' src='/appcont/archivohist/ad53a/pdfmake/build/vfs_fonts.js'></script>
+	
+	<!-- DATATABLE -->
+<!-- 	<script src="https://cdn.datatables.net/1.10.23/js/jquery.dataTables.min.js"></script> -->
+	<script src="/appcont/archivohist/ad53a/scripts/datatables.min.js" async defer></script>
+	
+	<!-- STEPS -->
+	<script src="https://cdn.jsdelivr.net/npm/jquery.steps@1.1.1/dist/jquery-steps.min.js"></script>
+
+</footer>
+</html>
