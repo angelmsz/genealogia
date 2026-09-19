@@ -1117,6 +1117,12 @@ AGENTE_FICHAS_POR_APELLIDO = 4     # fichas como mucho por apellido buscado
 # tocan a la familia) la tarea es la misma y el modelo no se ahoga.
 AGENTE_FILAS_POR_LLAMADA = 15
 AGENTE_MAX_APELLIDOS_IA = 3        # apellidos nuevos que puede proponer la IA
+# TOPE DE LA COLA de apellidos. Sin tope la cola se dispara (medido el
+# 2026-09-20: 926 apellidos, 898 pendientes, porque cada familia con la que
+# emparentan trae sus apellidos y esos traen más). Con la cola ordenada por
+# prioridad (primero la línea, luego las filas de la familia y al final lo que
+# propone la IA) y 120 pendientes, la tanda se dedica a lo que importa.
+AGENTE_MAX_COLA = 120
 # Modelo de la opción 1.3. v4-flash (el de fase 1: "barato y rápido", para
 # filtrar) en vez del v4.1-flash de fase 2: la tarea es CLASIFICAR una lista
 # corta, no extraer campos de un documento. Medido el 2026-09-20 con las mismas

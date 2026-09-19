@@ -357,6 +357,81 @@ def test_la_ia_solo_puede_proponer_apellidos_de_las_filas_de_la_familia():
     assert lectura["descartados"] >= 1
 
 
+# ========= 4c. UN NOMBRE CORTO NO IDENTIFICA A NADIE (fallo en vivo) ========
+
+def test_un_pedro_saenz_de_otro_pueblo_no_es_el_pedro_saenz_de_la_familia():
+    """EL FALLO DEL 2026-09-20: comparando nombre + primer apellido, un fantasma
+    llamado 'Pedro Saenz' se llevó por delante a todos los Pedro Saenz de Álava
+    (7.009 'Saenz' en el índice) y metió en la lista a 20 niños de cinco pueblos
+    distintos (Treviño, Campezo, Laguardia, Bernedo, Moreda) como si fueran
+    hermanos. Ahora, con un apellido de una palabra, hacen falta más datos."""
+    estado = agente.estado_vacio()
+    agente.anotar_conocido(estado, nombre="Pedro", apellido1="Saenz",
+                           municipio="Navaridas", parentesco="padre de…")
+    # (a) Otro Pedro Saenz, con segundo apellido y en otro pueblo: NO es él
+    lejos = _fila("Juan", "Saenz", "Castillo", 1720, id_=501,
+                  padre=("Pedro", "Saenz", "Apellaniz"),
+                  parroquia="San Miguel", municipio="Treviño",
+                  localidad="Treviño")
+    nivel, _datos, _motivos = agente.sello(lejos, estado)
+    assert nivel != agente.SELLO_PARTIDA
+    assert agente.enlaza_con_la_familia(lejos, estado) == ("", "", "")
+    # (b) Un Pedro Saenz EN SU PUEBLO (sin segundo apellido): ese sí
+    cerca = _fila("Maria", "Saenz", "", 1840, id_=502,
+                  padre=("Pedro", "Saenz", ""), parroquia="La Purísima",
+                  municipio="Navaridas", localidad="Navaridas")
+    enlace, etiqueta, _ = agente.enlaza_con_la_familia(cerca, estado)
+    assert etiqueta == "padre" and "Pedro" in enlace
+
+
+def test_un_apellido_compuesto_si_identifica():
+    """'Saenz de Navarrete' no se repite: con eso basta (y es lo que permite
+    subir la línea sin depender del pueblo)."""
+    estado = agente.estado_vacio()
+    agente.anotar_conocido(estado, nombre="Eusebio",
+                           apellido1="Saenz de Navarrete", municipio="Navaridas")
+    otra_fila = _fila("Victor", "Saenz de Navarrete", "Dopico", 1885, id_=503,
+                      padre=("Eusebio", "Saenz de Navarrete", "Tellaeche"),
+                      parroquia="Otra", municipio="OtroPueblo",
+                      localidad="OtroPueblo")
+    enlace, etiqueta, _ = agente.enlaza_con_la_familia(otra_fila, estado)
+    assert etiqueta == "padre"
+
+
+# ============= 4d. LA COLA: POR PRIORIDAD Y CON TOPE =======================
+
+def test_la_cola_se_atiende_por_prioridad():
+    """Primero lo que nombra una partida (es la línea), después lo de la familia
+    y al final lo que propone la IA. Sin orden, la cola se dispara (926
+    apellidos medidos)."""
+    estado = agente.estado_vacio()
+    agente.apuntar_apellido(estado, "Inventado", "lo propone la IA",
+                            agente.PRIORIDAD_IA)
+    agente.apuntar_apellido(estado, "Dopico", "una fila de la familia",
+                            agente.PRIORIDAD_FAMILIA)
+    agente.apuntar_apellido(estado, "Tellaeche", "padre de Eusebio",
+                            agente.PRIORIDAD_PARTIDA)
+    assert agente.siguiente_apellido(estado) == "tellaeche"
+    assert agente.siguiente_apellido(estado) == "dopico"
+    assert agente.siguiente_apellido(estado) == "inventado"
+    assert agente.siguiente_apellido(estado) is None
+
+
+def test_la_cola_tiene_tope_y_lo_dice():
+    """Cuando la cola está llena, lo que propone la IA se queda fuera (y se
+    cuenta, para que el informe no lo esconda). Lo de la familia sí entra."""
+    estado = agente.estado_vacio()
+    for i in range(3):
+        agente.apuntar_apellido(estado, f"Familia{i}", "una fila",
+                                agente.PRIORIDAD_FAMILIA, max_cola=3)
+    assert agente.apuntar_apellido(estado, "Propuesto", "lo propone la IA",
+                                   agente.PRIORIDAD_IA, max_cola=3) is False
+    assert estado["descartados_cola"] == 1
+    assert len(estado["cola"]) == 3
+    texto = agente.informe(estado)
+    assert "se han quedado fuera" in texto
+
+
 # =================== 4. EL SELLO DE ≥2 DATOS (PIEZA PURA) ==================
 
 def test_lo_que_dice_la_partida_entra_aunque_la_ia_no_diga_nada():
@@ -508,7 +583,8 @@ def test_el_informe_lista_los_familiares_con_su_cita():
     assert "fondo F006.329" in texto and "f.195 r." in texto
     assert "La Purisima" in texto
     assert "compatible — lo dice la partida" in texto
-    assert "| Saenz de Navarrete | 1 | 1 |" in texto         # la tabla de apellidos
+    assert "| Saenz de Navarrete |" in texto                 # la tabla de apellidos
+    assert "la línea" in texto                               # y de dónde salió
     assert "para seguir la línea de la madre" in texto       # lo que dice la IA
     assert "se ha escrito en el árbol" in texto
 
