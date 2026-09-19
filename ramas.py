@@ -43,6 +43,7 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from agent import ramas                                    # noqa: E402
+from config import ARTXIBO_ANIO_MAX                         # noqa: E402
 from config import BASE_DIR as DIR_PROYECTO                 # noqa: E402
 from config import LINAJE_MAX_CONSULTAS                     # noqa: E402
 from utils import ui                                        # noqa: E402
@@ -166,6 +167,25 @@ def ejecutar_linaje(rama: str, base: Path | None = None,
         ui.log_warn("No hay ninguna persona con año en esta rama: no puedo "
                     "calcular la ventana de búsqueda.")
         return 1
+    # El índice acaba en 1900: quien nazca después no está ahí, y buscarlo gasta
+    # consultas para nada (fue el caso del abuelo, 1927: 2 consultas y 0
+    # resultados). Se avisa y se manda al Registro Civil.
+    dentro = [s for s in semillas if (s.get("ventana") or [None])[0]
+              and s["ventana"][0] <= ARTXIBO_ANIO_MAX]
+    fuera = [s for s in semillas if s not in dentro]
+    if fuera:
+        listado_fuera = ", ".join(f"{s['nombre']} {s.get('apellido1', '')} "
+                                  f"({s.get('anio', '?')})" for s in fuera[:8])
+        ui.log_warn(f"{len(fuera)} persona(s) nacida(s) después de "
+                    f"{ARTXIBO_ANIO_MAX}: no están en el índice del AHDV; sus "
+                    f"partidas se piden al Registro Civil — {listado_fuera}")
+    if not dentro:
+        ui.log_warn("Todas las personas de la rama nacieron después de "
+                    f"{ARTXIBO_ANIO_MAX}: el índice del AHDV no llega. Para "
+                    "estas generaciones hay que pedir el certificado al "
+                    "Registro Civil (es gratis).")
+        return 1
+    semillas = dentro
     estado = (linaje.estado_vacio(rama) if reiniciar
               else linaje.cargar_estado(base=base, rama=rama))
     antes = dict(linaje.resumen(estado))

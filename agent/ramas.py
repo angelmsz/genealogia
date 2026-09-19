@@ -272,35 +272,73 @@ def personas_de_rama(rama: str, familia: dict | None = None,
             "prioridad": entrada.get("prioridad"),
             "notas": entrada.get("motivo", ""),
         }
-    # SUBIR POR EL ÁRBOL. En este árbol la provincia/municipio casi nunca están
-    # rellenos, así que una rama se quedaría en la única ficha que los trae (el
-    # abuelo de Vitoria) y el rastreo no tendría de dónde tirar. Por eso se
-    # añaden los ASCENDIENTES (padre/madre) de quien ya está dentro, con su año
-    # deducido de los hijos si hace falta. Se corta al salir de la rama: si el
-    # ascendiente declara provincia de otra línea (Zamora/Palencia), no entra.
-    for _ in range(4):
-        nuevos = []
-        for persona in list(personas.values()):
-            ficha = por_nombre.get(_clave(persona["nombre"])) or {}
-            for clave_padre in ("padre", "madre"):
-                nombre_asc = ficha.get(clave_padre) or ""
-                if not nombre_asc or _clave(nombre_asc) in personas:
-                    continue
-                ascendiente = por_nombre.get(_clave(nombre_asc))
-                if not ascendiente:
-                    continue
-                nac_asc = ascendiente.get("nacimiento") or {}
-                if not _es_de_rama(nac_asc.get("provincia", ""),
-                                   nac_asc.get("municipio", ""), rama) and \
-                        (nac_asc.get("provincia") or nac_asc.get("municipio")):
-                    continue      # declara otra provincia: es de otra rama
-                nuevos.append(ascendiente)
-        if not nuevos:
+    # --- Completar la rama: SUBIR POR EL ÁRBOL y, si no basta, por APELLIDO ---
+    # En este árbol la provincia/municipio casi nunca están rellenos, así que una
+    # rama se quedaría en la única ficha que los trae (el abuelo de Vitoria) y el
+    # rastreo no tendría de dónde tirar: fue el fallo del sobremesa (2 consultas,
+    # 0 antepasados). Se completa por dos vías y la segunda aprovecha lo que haya
+    # añadido la primera (si el apellido mete a los abuelos, de ellos se sube a
+    # sus padres).
+
+    def _subir_por_el_arbol() -> int:
+        """Añade los ASCENDIENTES (padre/madre) de quien ya está en la rama."""
+        subidos = 0
+        for _ in range(4):
+            nuevos = []
+            for persona in list(personas.values()):
+                ficha = por_nombre.get(_clave(persona["nombre"])) or {}
+                for clave_padre in ("padre", "madre"):
+                    nombre_asc = ficha.get(clave_padre) or ""
+                    if not nombre_asc or _clave(nombre_asc) in personas:
+                        continue
+                    ascendiente = por_nombre.get(_clave(nombre_asc))
+                    if not ascendiente:
+                        continue
+                    nac_asc = ascendiente.get("nacimiento") or {}
+                    if (nac_asc.get("provincia") or nac_asc.get("municipio")) \
+                            and not _es_de_rama(nac_asc.get("provincia", ""),
+                                                nac_asc.get("municipio", ""),
+                                                rama):
+                        continue      # declara otra provincia: es de otra rama
+                    nuevos.append(ascendiente)
+            if not nuevos:
+                break
+            for ficha in nuevos:
+                _anadir_del_arbol(ficha, "arbol (ascendiente)")
+                subidos += 1
+        return subidos
+
+    def _por_apellido_de_la_linea() -> int:
+        """Última red, solo en Álava: quien lleve un apellido PROPIO de la línea.
+
+        Solo los PRIMEROS apellidos del núcleo (paternos). Los segundos no
+        valen: 'Pelaz' es el segundo apellido de tu madre (por su madre, que es
+        de Palencia) y con ese criterio se colaba David Pelaz en la línea de
+        Álava. La mujer de la línea entra por el árbol, en `_subir_por_el_arbol`
+        (la ficha del hijo dice quién es su madre), no por su apellido.
+        """
+        if rama != RAMA_ALAVA:
+            return 0
+        propios = apellidos_de_rama(
+            sorted(personas.values(), key=lambda p: p["nombre"]))
+        anadidos = 0
+        for ficha in familia.get("personas", []):
+            if _clave(ficha.get("nombre", "")) in personas:
+                continue
+            nac_f = ficha.get("nacimiento") or {}
+            if (nac_f.get("provincia") or nac_f.get("municipio")) \
+                    and not _es_de_rama(nac_f.get("provincia", ""),
+                                        nac_f.get("municipio", ""), rama):
+                continue
+            paterno = ficha.get("apellido_paterno", "")
+            if any(_mismo_apellido(paterno, apellido) for apellido in propios):
+                _anadir_del_arbol(ficha, "arbol (apellido de la línea)")
+                anadidos += 1
+        return anadidos
+
+    for _ in range(3):
+        if not (_subir_por_el_arbol() or _por_apellido_de_la_linea()):
             break
-        for ficha in nuevos:
-            if _clave(ficha.get("nombre", "")) not in personas:
-                personas[_clave(ficha.get("nombre", ""))] = {}
-            _anadir_del_arbol(ficha, "arbol (ascendiente)")
     return sorted(personas.values(),
                   key=lambda p: (-(p.get("prioridad") or -99),
                                  normalizar(p["nombre"])))

@@ -295,6 +295,81 @@ def test_las_personas_sin_anio_se_listan_en_vez_de_desaparecer(base):
     assert "Victor Saenz de Navarrete Dopico" not in sin_anio
 
 
+def test_el_apellido_del_abuelo_lo_mete_aunque_no_haya_enlaces(tmp_path):
+    """Si el árbol no trae ni provincia ni los enlaces padre/madre, la última red
+    es el PRIMER APELLIDO de la línea: quien se apellide 'Saenz de Navarrete'
+    entra. Solo los primeros apellidos: con los segundos se colaba David Pelaz
+    (Pelaz es el segundo apellido de la madre del usuario, y es de Palencia)."""
+    familia = {"personas": [
+        {"nombre": "Angel Saenz de Navarrete Perez de Palomares", "id": "P0006",
+         "apellido_paterno": "Saenz de Navarrete",
+         "apellido_materno": "Perez de Palomares",
+         "nacimiento": {"fecha_aproximada": "1927", "municipio": "Vitoria",
+                        "provincia": ""},
+         "padre": "", "madre": "", "hijos": [], "notas": ""},
+        {"nombre": "Victor Saenz de Navarrete Dopico", "id": "P0012",
+         "apellido_paterno": "Saenz de Navarrete", "apellido_materno": "Dopico",
+         "nacimiento": {"fecha_aproximada": "", "municipio": "",
+                        "provincia": ""},
+         "padre": "", "madre": "",
+         "hijos": ["Angel Saenz de Navarrete Perez de Palomares"], "notas": ""},
+        {"nombre": "Yo Merillas Saenz de Navarrete", "id": "P0001",
+         "apellido_paterno": "Merillas",
+         "apellido_materno": "Saenz de Navarrete",
+         "nacimiento": {"fecha_aproximada": "", "municipio": "",
+                        "provincia": ""},
+         "padre": "", "madre": "", "hijos": [], "notas": ""},
+        {"nombre": "David Pelaz", "id": "P0014",
+         "apellido_paterno": "Pelaz", "apellido_materno": "",
+         "nacimiento": {"fecha_aproximada": "", "municipio": "",
+                        "provincia": ""},
+         "padre": "", "madre": "", "hijos": [], "notas": ""},
+    ]}
+    (tmp_path / "familia_conocida.json").write_text(
+        json.dumps(familia, ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "estado_investigacion.json").write_text("{}", encoding="utf-8")
+    personas = ramas.personas_de_rama(ramas.RAMA_ALAVA, base=tmp_path)
+    nombres = [p["nombre"] for p in personas]
+    assert "Victor Saenz de Navarrete Dopico" in nombres
+    assert "Yo Merillas Saenz de Navarrete" not in nombres   # 1er apellido no
+    assert "David Pelaz" not in nombres                     # línea de Palencia
+    victor = next(p for p in personas if p["nombre"].startswith("Victor"))
+    assert victor["origen"] == "arbol (apellido de la línea)"
+    assert victor["anio"] == 1899
+    # Agustina (la abuela) NO entra por apellido: entra por el árbol, cuando la
+    # ficha de su hijo dice "madre: Agustina". Se prueba en el test de la rama
+    # que entra completa, que sí tiene los enlaces.
+    assert "Agustina Perez de Palomares" not in nombres
+
+
+def test_el_rastreo_avisa_si_todos_nacen_despues_de_1900(tmp_path, monkeypatch,
+                                                          capsys):
+    """El índice del AHDV acaba en 1900: buscar a quien nació después gasta
+    consultas para nada (le pasó al abuelo, 1927). Ahora se dice claro, se manda
+    al Registro Civil y NO se llama al portal."""
+    familia = {"personas": [
+        {"nombre": "Nieto Ejemplo", "id": "P0009", "apellido_paterno": "Ejemplo",
+         "apellido_materno": "",
+         "nacimiento": {"fecha_aproximada": "1940", "municipio": "Vitoria",
+                        "provincia": ""},
+         "padre": "", "madre": "", "hijos": [], "notas": ""},
+    ]}
+    (tmp_path / "familia_conocida.json").write_text(
+        json.dumps(familia, ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "estado_investigacion.json").write_text("{}", encoding="utf-8")
+
+    import ramas as cli
+
+    def _no_llamar(*args, **kwargs):
+        raise AssertionError("no se debe consultar el portal para post-1900")
+
+    monkeypatch.setattr(cli, "_buscador_artxibo", _no_llamar)
+    assert cli.ejecutar_linaje(ramas.RAMA_ALAVA, base=tmp_path) == 1
+    salida = capsys.readouterr().out.replace("\x1b", "")
+    assert "Registro Civil" in salida
+    assert "Punto de partida" in salida
+
+
 def test_el_ano_del_padre_tambien_sale_del_hijo_que_lo_nombra(tmp_path):
     """El árbol no siempre rellena la lista `hijos` del padre: la relación suele
     estar escrita en la ficha del hijo (`padre`: ...). También vale."""
