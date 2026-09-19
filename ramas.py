@@ -44,6 +44,7 @@ if str(BASE_DIR) not in sys.path:
 
 from agent import ramas                                    # noqa: E402
 from config import BASE_DIR as DIR_PROYECTO                 # noqa: E402
+from config import LINAJE_MAX_CONSULTAS                     # noqa: E402
 from utils import ui                                        # noqa: E402
 
 
@@ -98,6 +99,108 @@ def _escribir_informe(rama: str, texto: str,
     from config import escribir_con_backup
     escribir_con_backup(ruta, texto)
     return ruta
+
+
+def _buscador_artxibo(max_filas: int = 100):
+    """Buscador REAL del rastreo: el índice sacramental de Álava (artxibo).
+
+    Es un doble para los tests (que parchean `scrapers.artxibo.\
+buscar_sacramentales`), pero en producción es lo que consulta el portal: todas
+    las búsquedas son gratis y públicas.
+    """
+    from scrapers import artxibo
+    from config import sin_tildes
+
+    def buscar(nombre, apellido1, apellido2="", anio_ini=None, anio_fin=None,
+               **kwargs):
+        filas = artxibo.buscar_sacramentales(
+            tipo="bautismo", apellido1=apellido1, nombre=nombre,
+            anio_ini=anio_ini, anio_fin=anio_fin, max_filas=max_filas)
+        if not filas and sin_tildes(nombre) != (nombre or ""):
+            # El índice guarda unas veces con tilde y otras sin ella: si no
+            # sale nada, se prueba sin tildes antes de darlo por perdido.
+            filas = artxibo.buscar_sacramentales(
+                tipo="bautismo", apellido1=apellido1,
+                nombre=sin_tildes(nombre), anio_ini=anio_ini,
+                anio_fin=anio_fin, max_filas=max_filas)
+        return filas
+
+    return buscar
+
+
+def ejecutar_linaje(rama: str, base: Path | None = None,
+                    max_consultas: int | None = None,
+                    reiniciar: bool = False, solo_listar: bool = False) -> int:
+    """Rastreo del linaje hacia arriba (opción 1.2 del menú).
+
+    Solo Álava: es el único índice sacramental online que hay (AHDV, 1481-1900).
+    """
+    from agent import linaje
+    rama = ramas.resolver_rama(rama)
+    if rama != ramas.RAMA_ALAVA:
+        ui.log_error("El rastreo del linaje necesita un índice nominal online: "
+                     "hoy solo lo tiene Álava (AHDV, 1481-1900). Para Zamora y "
+                     "Palencia hay que pedir las partidas al archivo.")
+        return 1
+    base = base if base is not None else DIR_PROYECTO
+    tope = max_consultas or linaje.LINAJE_MAX_CONSULTAS
+    ui.cabecera("Rastreo del linaje — línea paterna de tu madre (Álava)")
+
+    personas = ramas.personas_de_rama(rama, base=base)
+    semillas = ramas.semillas_de_linaje(personas)
+    if not semillas:
+        ui.log_warn("No hay ninguna persona con año en esta rama: no puedo "
+                    "calcular la ventana de búsqueda.")
+        return 1
+    estado = (linaje.estado_vacio(rama) if reiniciar
+              else linaje.cargar_estado(base=base, rama=rama))
+    antes = dict(linaje.resumen(estado))
+    if antes["personas"]:
+        ui.log(f"Se continúa el rastreo anterior: {antes['personas']} persona(s) "
+               f"ya vistas, {antes['consultas']} consultas hechas, "
+               f"{antes['pendientes']} en la cola.")
+
+    buscar = _buscador_artxibo()
+    contador = {"n": 0}
+
+    def avisar(texto: str) -> None:
+        contador["n"] += 1
+        ui.log(texto)
+        if contador["n"] % 20 == 0 and not solo_listar:
+            linaje.guardar_estado(estado, base=base)   # reanudable si se corta
+
+    ui.log(f"Consultando el índice del AHDV en tandas de {tope} consultas "
+           f"(gratis; Ctrl+C guarda y se puede seguir luego)...")
+    try:
+        estado = linaje.rastrear(semillas, buscar, estado=estado,
+                                 max_consultas=tope, avisar=avisar)
+    except KeyboardInterrupt:
+        ui.log_warn("Interrumpido: se guarda lo hecho y se puede continuar "
+                    "otro día.")
+        if not solo_listar:
+            linaje.guardar_estado(estado, base=base)
+        return 0
+
+    datos = linaje.resumen(estado)
+    ui.log_ok(f"{datos['identificados']} antepasado(s) localizado(s) en "
+              f"{datos['generacion_max']} generación(es) "
+              f"({datos['anio_min'] or '?'}-{datos['anio_max'] or '?'}), "
+              f"{datos['colaterales']} pariente(s) colateral(es).")
+    ui.log(f"Consultas en total: {datos['consultas']} · pendientes: "
+           f"{datos['pendientes']}")
+    if datos["faltan"]:
+        ui.log_warn(f"{datos['faltan']} eslabón(es) que faltan (son los que "
+                    f"merecen una copia del archivo).")
+    if solo_listar:
+        ui.log("(modo --solo-listar: no se ha escrito nada)")
+        print(linaje.redactar_markdown(estado))
+        return 0
+    ruta_md = linaje.escribir_informe(estado, base=base)
+    respaldo = linaje.guardar_estado(estado, base=base)
+    ui.log_ok(f"Informe: {ruta_md}")
+    ui.log(f"Estado reanudable: {base / linaje.LINAJE_VENTANA}"
+           + (f" (copia previa: {Path(respaldo).name})" if respaldo else ""))
+    return 0
 
 
 def ejecutar(rama: str, solo_listar: bool = False,
@@ -196,6 +299,15 @@ def _argumentos(argv: list[str] | None = None) -> argparse.Namespace:
                    help="alava = línea paterna de tu madre (Álava/Vitoria); "
                         "zamora = línea de tu padre; palencia = línea materna "
                         "de tu madre")
+    p.add_argument("--linaje", action="store_true",
+                   help="en vez de preparar solicitudes, RASTREA el linaje "
+                        "hacia arriba por el índice de Álava (gratis; se puede "
+                        "cortar con Ctrl+C y continúa donde lo dejó)")
+    p.add_argument("--max-consultas", type=int, default=None,
+                   help="consultas al índice en esta tanda (por defecto, "
+                        f"{LINAJE_MAX_CONSULTAS})")
+    p.add_argument("--reiniciar", action="store_true",
+                   help="empieza el rastreo de cero (ignora el estado guardado)")
     p.add_argument("--solo-listar", action="store_true",
                    help="enseña lo que haría sin escribir ni el informe ni el "
                         "estado")
@@ -205,6 +317,10 @@ def _argumentos(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _argumentos(argv)
     _preparar_salida()
+    if args.linaje:
+        return ejecutar_linaje(args.rama, max_consultas=args.max_consultas,
+                               reiniciar=args.reiniciar,
+                               solo_listar=args.solo_listar)
     return ejecutar(args.rama, solo_listar=args.solo_listar)
 
 

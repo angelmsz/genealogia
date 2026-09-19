@@ -237,6 +237,34 @@ def personas_de_rama(rama: str, familia: dict | None = None,
                                  normalizar(p["nombre"])))
 
 
+def semillas_de_linaje(personas: list[dict]) -> list[dict]:
+    """Convierte las personas de la rama en SEMILLAS del rastreo del linaje.
+
+    De la ficha del árbol solo se aprovecha lo fiable: el nombre de pila, los
+    apellidos y el año (estimado: se marca como tal). El municipio va como
+    pista para puntuar, nunca como filtro: la familia puede estar en otro
+    pueblo (ya pasó: el árbol decía Vitoria y era Navaridas).
+    """
+    from agent import linaje
+    semillas = []
+    for persona in personas:
+        anio = persona.get("anio")
+        if not anio:
+            continue          # sin año no hay ventana: no se puede buscar
+        pila = (persona.get("nombre") or "").split()
+        if not pila:
+            continue
+        semillas.append(linaje.nueva_persona(
+            nombre=pila[0],
+            apellido1=persona.get("apellido_paterno", ""),
+            apellido2=persona.get("apellido_materno", ""),
+            anio=anio, anio_estimado=bool(persona.get("anio_estimado")),
+            ventana=linaje.ventana_semilla(anio), generacion=0,
+            rol=linaje.ROL_LINEA, municipio=persona.get("municipio", ""),
+            notas=f"del árbol ({persona.get('origen', '')})"))
+    return semillas
+
+
 def apellidos_de_rama(personas: list[dict],
                       incluir_maternos: bool = False) -> list[str]:
     """Apellidos a buscar en los índices, los COMPUESTOS primero.

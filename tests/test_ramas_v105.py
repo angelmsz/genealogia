@@ -211,6 +211,28 @@ def test_rama_desconocida():
         ramas.personas_de_rama("prima")
 
 
+def test_las_semillas_del_linaje_salen_de_la_rama(base):
+    """El rastreo arranca con las personas de la rama que tienen año: nombre de
+    pila, apellidos, año (marcado como estimado si lo es) y su ventana."""
+    from agent import linaje
+    personas = ramas.personas_de_rama(ramas.RAMA_ALAVA, base=base)
+    semillas = ramas.semillas_de_linaje(personas)
+    nombres = {s["nombre"] for s in semillas}
+    assert {"Victor", "Angel"} <= nombres
+    victor = next(s for s in semillas if s["nombre"] == "Victor")
+    assert victor["apellido1"] == "Saenz de Navarrete"
+    assert victor["apellido2"] == "Dopico"
+    assert victor["anio"] == 1895 and victor["anio_estimado"] is True
+    assert victor["ventana"] == list(linaje.ventana_semilla(1895))
+    assert victor["rol"] == linaje.ROL_LINEA
+    assert all(s["generacion"] == 0 for s in semillas)
+    # Sin año no hay ventana de búsqueda: esa persona no puede ser semilla
+    # (en el fixture sintético, Agustina llega de la frontera sin año).
+    sin_anio = [p for p in personas if not p.get("anio")]
+    assert sin_anio, "el caso sin año tiene que existir en el fixture"
+    assert not any(s["nombre"] == "Agustina" for s in semillas)
+
+
 # ============ LA REGLA DE >=2 DATOS, CON LOS CASOS REALES ==================
 
 def test_bautismo_1885_compatible_con_reservas(base):

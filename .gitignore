@@ -55,6 +55,10 @@ solicitudes.md
 # municipios y fechas de la familia. El repositorio es PÚBLICO: nunca al repo.
 solicitudes_rama_*.md
 solicitudes_rama_*.json
+# v10.4.2 (BLOQUE 4) — rastreo del linaje (estado reanudable + informe).
+linaje_alava.json
+linaje_alava.json.bak*
+linaje_alava.md
 candidatos_ensenada.json
 registro_confirmaciones.jsonl
 

@@ -1081,6 +1081,21 @@ ARTXIBO_FILAS_POR_DOC = 12       # filas agrupadas por documento del corpus
 # devuelve 0 filas; cuando pasa, el resultado va marcado y con menos peso.
 MARCA_CONFIANZA_BAJA = "CONFIANZA BAJA: apellido compuesto fragmentado"
 
+# ====== v10.4.2 (BLOQUE 4) — RASTREO DEL LINAJE (crawl hacia arriba) ========
+# El bot tira del hilo: de la partida de una persona saca el nombre de sus
+# padres, busca a esos padres en el índice, saca los suyos y sigue hacia arriba
+# por TODAS las líneas (incluidas las de las mujeres), apuntando también a los
+# hermanos de cada uno. Solo Álava (es el único índice online que hay).
+LINAJE_VENTANA_PADRES = (18, 35)   # años de diferencia padre|madre → hijo
+LINAJE_VENTANA_HIJOS = (18, 50)    # ventana para buscar los HIJOS de alguien
+LINAJE_VENTANA_SEMILLA = 20        # margen (años) alrededor del año estimado
+LINAJE_MAX_GENERACIONES = 14       # hasta dónde subir (tope de seguridad)
+LINAJE_MAX_CONSULTAS = 300         # consultas por tanda (todas gratis)
+LINAJE_DELAY = (0.4, 1.0)          # cortesía entre consultas (segundos)
+LINAJE_MIN_ANIO = 1550             # por debajo de esto el índice casi no dice
+LINAJE_VENTANA = "linaje_alava.json"      # estado reanudable
+LINAJE_INFORME = "linaje_alava.md"        # informe para leer
+
 APELLIDOS_COMUNES = {
     "garcia", "gonzalez", "rodriguez", "fernandez", "lopez", "martinez",
     "sanchez", "perez", "gomez", "martin", "jimenez", "ruiz", "hernandez",
@@ -1863,6 +1878,47 @@ def _tokens_apellido(apellido: str) -> list[str]:
     """
     return [t for t in (apellido or "").split()
             if normalizar(t) not in PARTICULAS_APELLIDO and len(t) > 2]
+
+
+def clave_nombre(texto: str) -> str:
+    """Clave para comparar NOMBRES DE PILA de documentos antiguos, donde la
+    ortografía baila y el cura escribía lo que oía.
+
+    Sin tildes ni mayúsculas, y además: v→b (Eusevio = Eusebio), y→i,
+    la h fuera y las letras dobles reducidas (Yluminado = Ylluminado,
+    Jullian = Julian). Se aplica igual a los dos lados, así que no importa que
+    la clave no sea una palabra real.
+    """
+    t = normalizar(texto or "")
+    t = t.replace("v", "b").replace("y", "i").replace("h", "")
+    return re.sub(r"(.)\1+", r"\1", t)
+
+
+def mismo_nombre(a: str, b: str) -> bool:
+    """¿Son el mismo nombre de pila, con la ortografía de la época?"""
+    if not (a or "").strip() or not (b or "").strip():
+        return False
+    return clave_nombre(a) == clave_nombre(b)
+
+
+def mismo_apellido(a: str, b: str) -> bool:
+    """Igualdad TOLERANTE de apellidos (la usan el cotejo de ramas y el rastreo
+    del linaje).
+
+    Encajan: 'Saenz de Navarrete' con 'Saenz de Navarrete'; 'Saenz' con 'Saenz
+    de Navarrete' (los índices antiguos a veces trocean el compuesto); y las
+    variantes sin tilde o con guion. No encajan apellidos cortos por
+    casualidad: hace falta que uno contenga al otro y 4+ letras.
+    """
+    a, b = normalizar(a or ""), normalizar(b or "")
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    a, b = a.replace("-", " "), b.replace("-", " ")
+    if a == b:
+        return True
+    return len(a) >= 4 and len(b) >= 4 and (a in b or b in a)
 
 
 def variantes_compuesto(apellido: str) -> list[str]:

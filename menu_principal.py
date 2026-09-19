@@ -132,6 +132,20 @@ CHULETA_AVANZADOS = (
 # Submenús: la opción N del menú principal abre estas. Así el menú de arriba
 # son 9 líneas, pero no se pierde ninguna función.
 SUBMENUS = {
+    "1": {
+        "titulo": "Línea paterna de tu madre — Álava/Vitoria (Sáenz de Navarrete)",
+        "opciones": {
+            "1": ("informe y solicitudes (lo de siempre)",
+                  "busca en el índice del AHDV, coteja con el árbol (regla de "
+                  "≥2 datos) y redacta las copias literales con su enlace. "
+                  "Usa la red y escribe estado"),
+            "2": ("rastrear el linaje hacia arriba",
+                  "tira del hilo partida a partida (padres, abuelos…) por "
+                  "TODAS las líneas, incluida la de las mujeres, y saca también "
+                  "hermanos y tíos. Gratis, pero tarda; se puede cortar con "
+                  "Ctrl+C y continúa donde lo dejó"),
+        },
+    },
     "4": {
         "titulo": "Investigar",
         "opciones": {
@@ -220,9 +234,9 @@ SUBMENUS = {
 # pintar el menú, despachar y testear.
 OPCIONES: dict[str, tuple[str, str]] = {
     "1": ("Línea paterna de tu madre — Álava/Vitoria (Sáenz de Navarrete)",
-          "busca esa línea en el índice del AHDV (artxibo), la coteja con el "
-          "árbol (regla de ≥2 datos) y redacta las copias literales (red + "
-          "escribe estado)"),
+          "abre el submenú: informe y solicitudes, o rastrear el linaje hacia "
+          "arriba (buscar, generar copias y tirar del hilo hasta donde llegue "
+          "el índice)"),
     "2": ("Línea de tu padre — Zamora (Merillas · López)",
           "redacta las cartas al archivo diocesano de Zamora y los "
           "certificados gratuitos del Registro Civil (no usa la red; escribe "
@@ -1114,6 +1128,20 @@ def accion_rama_palencia(interprete: str, sin_log: bool = False) -> int:
               "estado_investigacion.json, con .bak previo)")
 
 
+def accion_linaje(interprete: str, sin_log: bool = False) -> int:
+    """Opción 1.2: rastrear el linaje hacia arriba (crawl del índice).
+
+    Es gratis (el índice del AHDV es público) pero tarda: consulta en tandas y
+    guarda el estado, así que se puede cortar con Ctrl+C y seguir otro día.
+    """
+    return _lanzar_escribiendo(
+        [interprete, "ramas.py", "--linaje", "--rama", "alava"], opcion="1.2",
+        descripcion="rastreo del linaje (Álava)", sin_log=sin_log,
+        aviso="(consulta el índice público del AHDV en tandas: GRATIS, pero "
+              "tarda. Va guardando el estado, así que Ctrl+C no pierde nada: "
+              "la próxima vez sigue donde lo dejó)")
+
+
 def accion_solicitudes(interprete: str, sin_log: bool = False) -> int:
     """Opción 9.1: --solicitudes del árbol (solicitudes.json + .md)."""
     return _lanzar_escribiendo(
@@ -1193,9 +1221,9 @@ def accion_fase2_sin_cache(interprete: str, sin_log: bool = False) -> int:
 
 
 ACCIONES = {
-    # Las tres líneas de la familia (opciones de primer nivel)
-    "1": accion_rama_alava, "2": accion_rama_zamora,
-    "3": accion_rama_palencia,
+    # Las tres líneas de la familia: la 1 abre submenú, 2 y 3 hacen lo suyo
+    "1.1": accion_rama_alava, "1.2": accion_linaje,
+    "2": accion_rama_zamora, "3": accion_rama_palencia,
     # Submenú 4 — Investigar
     "4.1": accion_fase1, "4.2": accion_fase2, "4.3": accion_ciclo,
     "4.4": accion_personas, "4.5": accion_resumen,
@@ -1217,7 +1245,7 @@ ACCIONES = {
 # Qué opción hay que pulsar para llegar a cada acción (para el mensaje de
 # opción no reconocida y para los tests de cobertura).
 ETIQUETA_ACCION = {
-    "1": "1", "2": "2", "3": "3",
+    "1.1": "1 -> 1", "1.2": "1 -> 2", "2": "2", "3": "3",
     "4.1": "4 -> 1", "4.2": "4 -> 2", "4.3": "4 -> 3", "4.4": "4 -> 4",
     "4.5": "4 -> 5",
     "5.1": "5 -> 1", "5.2": "5 -> 2", "5.3": "5 -> 3",
