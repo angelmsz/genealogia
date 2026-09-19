@@ -131,19 +131,54 @@ def _anio(texto) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def _anio_estimado(persona: dict) -> tuple[int | None, bool]:
+def _anio_de_los_hijos(familia: dict, ficha: dict) -> int | None:
+    """Año del hijo mayor (hijo mayor − 28) de una ficha del árbol.
+
+    Sirve para deducir el año de un antepasado cuando su ficha no lo trae: si
+    su hijo nació en 1927, él nació hacia 1899. Es una ESTIMACIÓN, y así se
+    marca. Mira en las DOS direcciones, porque el árbol no siempre está
+    completo en el mismo sentido: la lista `hijos` del padre y, si esa está
+    vacía, quién declara a esta persona como `padre`/`madre` en su ficha.
+    """
+    nombre = normalizar(ficha.get("nombre", ""))
+    por_nombre = {normalizar(f.get("nombre", "")): f
+                  for f in familia.get("personas", [])}
+    anios = []
+    for nombre_hijo in ficha.get("hijos") or []:
+        hijo = por_nombre.get(normalizar(nombre_hijo)) or {}
+        anio, _ = _anio_estimado(hijo, familia=None)
+        if anio:
+            anios.append(anio)
+    if not anios and nombre:
+        for otra in familia.get("personas", []):
+            if nombre in (normalizar(otra.get("padre", "")),
+                          normalizar(otra.get("madre", ""))):
+                anio, _ = _anio_estimado(otra, familia=None)
+                if anio:
+                    anios.append(anio)
+    return min(anios) - 28 if anios else None
+
+
+def _anio_estimado(persona: dict, familia: dict | None = None) -> tuple:
     """(año, ¿es estimación?) de una ficha del árbol.
 
-    Primero el campo `fecha_aproximada` (dato); si está vacío, el año que la
-    propia ficha declara en las notas ('Nacimiento estimado hacia 1895-1905'),
-    que es una ESTIMACIÓN y así se marca: sirve para descartar partidas de otra
-    época, no para certificar nada.
+    Orden: el campo `fecha_aproximada` (dato); las notas ('Nacimiento estimado
+    hacia 1895-1905'); y, si no hay nada, **los hijos** (hijo mayor − 28 años).
+    Las dos últimas son ESTIMACIONES y así se marcan: sirven para calcular la
+    ventana de búsqueda, no para certificar nada.
     """
     nac = persona.get("nacimiento") or {}
     anio = _anio(nac.get("fecha_aproximada", ""))
     if anio is not None:
         return anio, False
-    return _anio(persona.get("notas", "")), True
+    anio = _anio(persona.get("notas", ""))
+    if anio is not None:
+        return anio, True
+    if familia is not None:
+        anio = _anio_de_los_hijos(familia, persona)
+        if anio is not None:
+            return anio, True
+    return None, True
 
 
 def _es_de_rama(provincia: str, municipio: str, rama: str) -> bool:
@@ -177,15 +212,13 @@ def personas_de_rama(rama: str, familia: dict | None = None,
     def _clave(nombre: str) -> str:
         return normalizar(nombre)
 
-    for ficha in familia.get("personas", []):
+    def _anadir_del_arbol(ficha: dict, origen: str) -> None:
+        """Mete (o refresca) una ficha del árbol dentro de la rama."""
         nac = ficha.get("nacimiento") or {}
-        if not _es_de_rama(nac.get("provincia", ""), nac.get("municipio", ""),
-                           rama):
-            continue
-        anio, estimado = _anio_estimado(ficha)
+        anio, estimado = _anio_estimado(ficha, familia)
         personas[_clave(ficha.get("nombre", ""))] = {
             "nombre": ficha.get("nombre", ""),
-            "origen": "arbol",
+            "origen": origen,
             "id": ficha.get("id", ""),
             "municipio": nac.get("municipio", ""),
             "provincia": nac.get("provincia", ""),
@@ -197,6 +230,13 @@ def personas_de_rama(rama: str, familia: dict | None = None,
             "prioridad": None,
             "notas": ficha.get("notas", ""),
         }
+
+    for ficha in familia.get("personas", []):
+        nac = ficha.get("nacimiento") or {}
+        if not _es_de_rama(nac.get("provincia", ""), nac.get("municipio", ""),
+                           rama):
+            continue
+        _anadir_del_arbol(ficha, "arbol")
     for entrada in frontera.get("frontera", []):
         if not _es_de_rama(entrada.get("provincia", ""),
                            entrada.get("municipio", ""), rama):
@@ -205,7 +245,7 @@ def personas_de_rama(rama: str, familia: dict | None = None,
         # La ficha del árbol es la que trae el año ESTIMADO (en las notas) y los
         # padres, aunque su provincia venga vacía: se usa para completar.
         ficha_arbol = por_nombre.get(clave) or {}
-        anio_ficha, estimado = _anio_estimado(ficha_arbol)
+        anio_ficha, estimado = _anio_estimado(ficha_arbol, familia)
         previa = personas.get(clave)
         if previa is not None:
             previa["origen"] = "arbol+frontera"
@@ -232,9 +272,47 @@ def personas_de_rama(rama: str, familia: dict | None = None,
             "prioridad": entrada.get("prioridad"),
             "notas": entrada.get("motivo", ""),
         }
+    # SUBIR POR EL ÁRBOL. En este árbol la provincia/municipio casi nunca están
+    # rellenos, así que una rama se quedaría en la única ficha que los trae (el
+    # abuelo de Vitoria) y el rastreo no tendría de dónde tirar. Por eso se
+    # añaden los ASCENDIENTES (padre/madre) de quien ya está dentro, con su año
+    # deducido de los hijos si hace falta. Se corta al salir de la rama: si el
+    # ascendiente declara provincia de otra línea (Zamora/Palencia), no entra.
+    for _ in range(4):
+        nuevos = []
+        for persona in list(personas.values()):
+            ficha = por_nombre.get(_clave(persona["nombre"])) or {}
+            for clave_padre in ("padre", "madre"):
+                nombre_asc = ficha.get(clave_padre) or ""
+                if not nombre_asc or _clave(nombre_asc) in personas:
+                    continue
+                ascendiente = por_nombre.get(_clave(nombre_asc))
+                if not ascendiente:
+                    continue
+                nac_asc = ascendiente.get("nacimiento") or {}
+                if not _es_de_rama(nac_asc.get("provincia", ""),
+                                   nac_asc.get("municipio", ""), rama) and \
+                        (nac_asc.get("provincia") or nac_asc.get("municipio")):
+                    continue      # declara otra provincia: es de otra rama
+                nuevos.append(ascendiente)
+        if not nuevos:
+            break
+        for ficha in nuevos:
+            if _clave(ficha.get("nombre", "")) not in personas:
+                personas[_clave(ficha.get("nombre", ""))] = {}
+            _anadir_del_arbol(ficha, "arbol (ascendiente)")
     return sorted(personas.values(),
                   key=lambda p: (-(p.get("prioridad") or -99),
                                  normalizar(p["nombre"])))
+
+
+def personas_sin_anio(personas: list[dict]) -> list[str]:
+    """Nombres de las personas de la rama sin año: no se pueden rastrear.
+
+    No se buscan (sin año no hay ventana que consultar), pero se LISTAN para
+    que no desaparezcan en silencio: son justo las que hay que datar a mano.
+    """
+    return [p.get("nombre", "") for p in personas if not p.get("anio")]
 
 
 def semillas_de_linaje(personas: list[dict]) -> list[dict]:

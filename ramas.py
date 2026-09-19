@@ -148,6 +148,20 @@ def ejecutar_linaje(rama: str, base: Path | None = None,
 
     personas = ramas.personas_de_rama(rama, base=base)
     semillas = ramas.semillas_de_linaje(personas)
+    # Que se VEA con quién se empieza: si una rama entra coja (p. ej. solo el
+    # abuelo, porque las demás fichas no traen año ni provincia), hay que verlo
+    # aquí y no en el informe final.
+    sin_anio = ramas.personas_sin_anio(personas)
+    if semillas:
+        listado = " · ".join(
+            f"{s['nombre']} {s.get('apellido1', '')} "
+            f"{'~' if s.get('anio_estimado') else ''}{s.get('anio', '?')}"
+            for s in semillas[:12])
+        ui.log(f"Punto de partida: {len(semillas)} persona(s) — {listado}")
+    if sin_anio:
+        ui.log_warn(f"{len(sin_anio)} persona(s) de la rama sin año conocido "
+                    f"(no se pueden buscar por ventana de fechas): "
+                    f"{', '.join(sin_anio[:8])}")
     if not semillas:
         ui.log_warn("No hay ninguna persona con año en esta rama: no puedo "
                     "calcular la ventana de búsqueda.")

@@ -233,6 +233,91 @@ def test_las_semillas_del_linaje_salen_de_la_rama(base):
     assert not any(s["nombre"] == "Agustina" for s in semillas)
 
 
+# ====== EL FALLO DEL SOBREMESA (2026-09-19): rama coja, sin frontera =========
+
+FAMILIA_SIN_FRONTERA = {
+    "personas": [
+        {"nombre": "Angel Saenz de Navarrete Perez de Palomares", "id": "P0006",
+         "apellido_paterno": "Saenz de Navarrete",
+         "apellido_materno": "Perez de Palomares",
+         "nacimiento": {"fecha_aproximada": "1927", "municipio": "Vitoria",
+                        "provincia": ""},
+         "padre": "Victor Saenz de Navarrete Dopico",
+         "madre": "Agustina Perez de Palomares",
+         "hijos": [], "notas": ""},
+        {"nombre": "Victor Saenz de Navarrete Dopico", "id": "P0012",
+         "apellido_paterno": "Saenz de Navarrete", "apellido_materno": "Dopico",
+         "nacimiento": {"fecha_aproximada": "", "municipio": "",
+                        "provincia": ""},
+         "padre": "", "madre": "",
+         "hijos": ["Angel Saenz de Navarrete Perez de Palomares"], "notas": ""},
+        {"nombre": "Agustina Perez de Palomares", "id": "P0013",
+         "apellido_paterno": "Perez de Palomares", "apellido_materno": "",
+         "nacimiento": {"fecha_aproximada": "", "municipio": "",
+                        "provincia": ""},
+         "padre": "", "madre": "",
+         "hijos": ["Angel Saenz de Navarrete Perez de Palomares"], "notas": ""},
+    ]
+}
+
+
+def test_la_rama_entra_completa_aunque_no_haya_frontera_ni_notas(tmp_path):
+    """EL FALLO DEL SOBREMESA: sin fichero de frontera y con las fichas de los
+    abuelos sin provincia ni notas, la rama se quedaba en el abuelo de Vitoria
+    (Ángel, 1927) y el rastreo hacía 2 consultas y no encontraba NADA.
+    Ahora la rama se completa SUBIENDO por el árbol (padres de quien ya está
+    dentro) y el año que falta se deduce del hijo mayor (1927 - 28 = 1899)."""
+    (tmp_path / "familia_conocida.json").write_text(
+        json.dumps(FAMILIA_SIN_FRONTERA, ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "estado_investigacion.json").write_text(
+        json.dumps({"frontera": []}, ensure_ascii=False), encoding="utf-8")
+
+    personas = ramas.personas_de_rama(ramas.RAMA_ALAVA, base=tmp_path)
+    nombres = [p["nombre"] for p in personas]
+    assert "Angel Saenz de Navarrete Perez de Palomares" in nombres
+    assert "Victor Saenz de Navarrete Dopico" in nombres       # antes NO entraba
+    assert "Agustina Perez de Palomares" in nombres
+    victor = next(p for p in personas if p["nombre"].startswith("Victor"))
+    assert victor["origen"] == "arbol (ascendiente)"
+    assert victor["anio"] == 1899 and victor["anio_estimado"] is True
+
+    semillas = ramas.semillas_de_linaje(personas)
+    assert {"Victor", "Agustina"} <= {s["nombre"] for s in semillas}
+    assert not ramas.personas_sin_anio(personas)
+
+
+def test_las_personas_sin_anio_se_listan_en_vez_de_desaparecer(base):
+    """Quien no tenga año no se puede buscar por ventana, pero tiene que salir
+    en la lista (para saber a quién hay que datar a mano)."""
+    personas = ramas.personas_de_rama(ramas.RAMA_ALAVA, base=base)
+    sin_anio = ramas.personas_sin_anio(personas)
+    assert "Agustina Perez de Palomares" in sin_anio
+    assert "Victor Saenz de Navarrete Dopico" not in sin_anio
+
+
+def test_el_ano_del_padre_tambien_sale_del_hijo_que_lo_nombra(tmp_path):
+    """El árbol no siempre rellena la lista `hijos` del padre: la relación suele
+    estar escrita en la ficha del hijo (`padre`: ...). También vale."""
+    familia = {"personas": [
+        {"nombre": "Nieta Ejemplo", "id": "P0006",
+         "apellido_paterno": "Ejemplo", "apellido_materno": "",
+         "nacimiento": {"fecha_aproximada": "1927", "municipio": "Vitoria",
+                        "provincia": "Alava"},
+         "padre": "Abuelo Ejemplo", "madre": "", "notas": ""},
+        {"nombre": "Abuelo Ejemplo", "id": "P0012",
+         "apellido_paterno": "Ejemplo", "apellido_materno": "",
+         "nacimiento": {"fecha_aproximada": "", "municipio": "",
+                        "provincia": ""},
+         "padre": "", "madre": "", "notas": ""},
+    ]}
+    (tmp_path / "familia_conocida.json").write_text(
+        json.dumps(familia, ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "estado_investigacion.json").write_text("{}", encoding="utf-8")
+    personas = ramas.personas_de_rama(ramas.RAMA_ALAVA, base=tmp_path)
+    abuelo = next(p for p in personas if p["nombre"] == "Abuelo Ejemplo")
+    assert abuelo["anio"] == 1899 and abuelo["anio_estimado"] is True
+
+
 # ============ LA REGLA DE >=2 DATOS, CON LOS CASOS REALES ==================
 
 def test_bautismo_1885_compatible_con_reservas(base):
