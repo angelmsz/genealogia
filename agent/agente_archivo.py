@@ -48,11 +48,11 @@ from datetime import datetime
 from pathlib import Path
 
 from config import (AGENTE_DELAY, AGENTE_FICHAS_POR_APELLIDO, AGENTE_FILAS_POR_LLAMADA,
-                    AGENTE_INFORME, AGENTE_MAX_CONSULTAS, AGENTE_MAX_FICHAS,
-                    AGENTE_MAX_LLM, AGENTE_MAX_TOKENS_SALIDA, AGENTE_VENTANA,
-                    AGENTE_VENTANA_MARGEN, APELLIDOS_COMUNES, BASE_DIR,
-                    MODELO_FASE2, escribir_con_backup, mismo_apellido,
-                    mismo_nombre, normalizar)
+                    AGENTE_INFORME, AGENTE_MAX_APELLIDOS_IA, AGENTE_MAX_CONSULTAS,
+                    AGENTE_MAX_FICHAS, AGENTE_MAX_LLM, AGENTE_MAX_TOKENS_SALIDA,
+                    AGENTE_MODELO, AGENTE_VENTANA, AGENTE_VENTANA_MARGEN,
+                    APELLIDOS_COMUNES, BASE_DIR, escribir_con_backup,
+                    mismo_apellido, mismo_nombre, normalizar)
 from utils import ui
 
 # Papel de cada persona en la lista
@@ -288,6 +288,7 @@ def interpretar_respuesta(resp: dict, lote: list[dict],
     resp = resp if isinstance(resp, dict) else {}
     parientes: list[dict] = []
     descartados = 0
+    filas_familia: list[dict] = []
     for item in resp.get("parientes") or []:
         if not isinstance(item, dict):
             descartados += 1
@@ -310,19 +311,25 @@ def interpretar_respuesta(resp: dict, lote: list[dict],
             "confianza_ia": str(item.get("confianza") or "")[:16],
             "nivel": nivel, "datos": datos, "motivos": motivos,
         })
-    vistos = {clave_apellido(a) for fila in lote
-              for a in apellidos_de_registro(fila)}
-    por_clave = {clave_apellido(a): a for fila in lote
-                 for a in apellidos_de_registro(fila)}
+        filas_familia.append(fila)
+    # Los apellidos que propone la IA tienen que EXISTIR en las filas que ha
+    # dado por familiares o en las que tocan a la familia (si no, abriría las
+    # líneas de familias homónimas de toda Álava: medido, proponía una docena
+    # de apellidos de otras casas). Y como mucho AGENTE_MAX_APELLIDOS_IA.
+    permitidos: dict = {}
+    for fila in filas_familia + [f for f in lote if sello(f, estado)[0] != SELLO_PISTA]:
+        for apellido in apellidos_de_registro(fila):
+            permitidos.setdefault(clave_apellido(apellido), apellido)
     apellidos: list[str] = []
     for apellido in resp.get("apellidos") or []:
         clave = clave_apellido(str(apellido))
-        if clave in vistos and apellido_util(str(apellido)):
-            if clave not in {clave_apellido(a) for a in apellidos}:
-                apellidos.append(por_clave.get(clave, str(apellido).strip()))
+        if clave in permitidos and apellido_util(str(apellido)) \
+                and clave not in {clave_apellido(a) for a in apellidos}:
+            apellidos.append(permitidos[clave])
         else:
             descartados += 1
-    return {"parientes": parientes, "apellidos": apellidos,
+    return {"parientes": parientes,
+            "apellidos": apellidos[:AGENTE_MAX_APELLIDOS_IA],
             "descartados": descartados,
             "por_que_esos": str(resp.get("por_que_esos_apellidos") or "")[:300]}
 
@@ -396,20 +403,39 @@ def anotar_persona(estado: dict, fila: dict, *, parentesco: str = "",
                    nivel: str = "", datos: float = 0.0,
                    motivos: list[str] | None = None, papel: str = PAPEL_LINEA,
                    de_quien: str = "", confianza_ia: str = "",
-                   ficha: dict | None = None) -> str:
-    """Apunta (o completa) una persona de la familia. Devuelve su clave."""
+                   ficha: dict | None = None, clave: str | None = None) -> str:
+    """Apunta (o completa) una persona de la familia. Devuelve su clave.
+
+    Si la persona ya estaba SOLO por el árbol (una estimación) y ahora llega su
+    partida, MANDA EL DOCUMENTO: se sustituyen el año, la cita y el folio (el
+    árbol decía "hacia 1895" y la partida dice 10-03-1885), conservando lo que
+    ya sabías (el parentesco).
+    """
     persona_fila = _persona_de(fila, "persona")
     nombre = persona_fila.get("nombre", "")
     apellido1 = persona_fila.get("apellido1", "")
     apellido2 = persona_fila.get("apellido2", "")
     anio = fila.get("anio")
-    clave = clave_persona(nombre, apellido1, anio, fila.get("id"))
+    if clave is None:
+        # Si la fila es de alguien que YA conocíamos, se apunta en SU ficha (no
+        # se duplica con otro año): el árbol decía "hacia 1895" y la partida
+        # dice 1885, pero es la misma persona. La clave se lee de la propia
+        # ficha (`clave`), porque el año puede haber cambiado con el documento.
+        conocida = es_persona_conocida(fila, estado)
+        if conocida:
+            clave = (conocida.get("clave")
+                     or clave_persona(conocida.get("nombre", ""),
+                                      conocida.get("apellido1", ""),
+                                      conocida.get("anio")))
+        else:
+            clave = clave_persona(nombre, apellido1, anio, fila.get("id"))
     previa = estado["personas"].get(clave)
     padres_texto = [p.get("completo") or p.get("nombre")
                     for p in (_persona_de(fila, "padre"),
                               _persona_de(fila, "madre")) if p.get("nombre")]
     apellidos = list(dict.fromkeys(apellidos_de_registro(fila)))
     nueva = {
+        "clave": clave,
         "nombre": nombre, "apellido1": apellido1, "apellido2": apellido2,
         "anio": anio, "fecha": fila.get("fecha", ""),
         "tipo": fila.get("tipo", ""), "id": fila.get("id"),
@@ -419,10 +445,7 @@ def anotar_persona(estado: dict, fila: dict, *, parentesco: str = "",
         "diocesis": fila.get("diocesis", ""),
         "padres_texto": padres_texto, "apellidos": apellidos,
         "conyuge": (_persona_de(fila, "conyuge").get("completo") or ""),
-        "cita": ", ".join(trozo for trozo in (
-            f"fondo {fila.get('fondo')}" if fila.get("fondo") else "",
-            f"sig. {fila.get('signatura')}" if fila.get("signatura") else "",
-            f"folio {fila.get('folio')}" if fila.get("folio") else "") if trozo),
+        "cita": _cita_de_fila(fila),
         "folio": fila.get("folio", ""), "signatura": fila.get("signatura", ""),
         "parentesco": parentesco, "papel": papel, "de_quien": de_quien,
         "nivel": nivel or SELLO_PISTA, "datos": datos,
@@ -436,6 +459,20 @@ def anotar_persona(estado: dict, fila: dict, *, parentesco: str = "",
     }
     if previa is None:
         estado["personas"][clave] = nueva
+        return clave
+    # Si la ficha anterior NO tenía partida propia (venía del árbol, o solo
+    # estaba NOMBRADA en la partida de un hijo), ahora que llega su propio
+    # registro MANDAN los datos del documento: año, cita, folio y enlace.
+    if (previa.get("nivel") == NIVEL_ARBOL or not previa.get("id")) \
+            and nivel != NIVEL_ARBOL and nueva.get("id"):
+        # El documento manda sobre la estimación del árbol.
+        parentesco_previo = previa.get("parentesco") or ""
+        previa.update(nueva)
+        previa["parentesco"] = parentesco_previo or previa.get("parentesco") or ""
+        previa["nivel"] = nivel
+        previa["datos"] = datos
+        previa["motivos"] = motivos or previa.get("motivos") or []
+        previa["origen"] = "buscador (confirma lo que sabías del árbol)"
         return clave
     # Ya estaba: se completa lo que falte y se queda el sello MÁS FUERTE
     # (si una búsqueda posterior lo confirma con la partida, sube).
@@ -468,6 +505,7 @@ def anotar_conocido(estado: dict, *, nombre: str, apellido1: str = "",
     apellidos = list(dict.fromkeys(a for a in (apellido1, apellido2)
                                    if apellido_util(a)))
     estado["personas"][clave] = {
+        "clave": clave,
         "nombre": nombre, "apellido1": apellido1, "apellido2": apellido2,
         "anio": anio, "fecha": "", "tipo": "", "id": None, "url": "",
         "parroquia": parroquia, "municipio": municipio, "diocesis": "",
@@ -477,6 +515,136 @@ def anotar_conocido(estado: dict, *, nombre: str, apellido1: str = "",
         "motivos": [], "confianza_ia": "", "ficha_url": "",
         "ficha_campos": {}, "origen": origen,
     }
+    return clave
+
+
+def lugares_conocidos(estado: dict) -> set:
+    """Parroquias y municipios de la familia ya identificada (normalizados)."""
+    sitios: set = set()
+    for persona in estado.get("personas", {}).values():
+        for clave in ("parroquia", "municipio"):
+            valor = normalizar(persona.get(clave, ""))
+            if valor:
+                sitios.add(valor)
+    return sitios
+
+
+def lote_para_la_ia(filas: list[dict], estado: dict, maximo: int) -> list[dict]:
+    """Las filas que se le enseñan a la IA, por orden de interés y RECORTADAS.
+
+    POR QUÉ (medido 2026-09-20): mandarle 60 filas de un apellido que no es de
+    la familia (237 filas devueltas para 'Sagarribay') hacía que la llamada
+    tardara 90 s y volviera vacía. La IA no necesita el índice entero: necesita
+    las filas que PODRÍAN ser de la familia, y ahí su criterio es útil.
+    Orden: (1) lo que dice la partida, (2) 2 datos, (3) el resto, y dentro de
+    cada grupo, primero lo que está en el mismo pueblo y más cerca de los años
+    de la familia.
+    """
+    ini, fin = ventana_familia(estado)
+    anios = anios_conocidos(estado)
+    centro = (sum(anios) / len(anios)) if anios else 1800
+    sitios = lugares_conocidos(estado)
+
+    def peso(fila: dict):
+        nivel, _datos, _motivos = sello(fila, estado)
+        mismo_sitio = 0 if ({normalizar(fila.get("parroquia", "")),
+                             normalizar(fila.get("municipio", ""))} & sitios) else 1
+        return (_ORDEN_SELLO.get(nivel, 3), mismo_sitio,
+                abs((fila.get("anio") or 0) - centro))
+
+    return sorted(filas, key=peso)[:maximo]
+
+
+def es_persona_conocida(fila: dict, estado: dict) -> dict:
+    """¿Esta fila es la partida de alguien que YA sabíamos (del árbol)?
+
+    Se compara el bautizado de la fila con las personas conocidas: mismo nombre
+    (con la ortografía de la época) y mismo primer apellido, y el año tiene que
+    ser coherente (las estimaciones del árbol van a ojo, así que se admite un
+    margen). Devuelve la persona conocida o {}.
+    """
+    quien = _persona_de(fila, "persona")
+    if not quien.get("nombre"):
+        return {}
+    for conocida in estado.get("personas", {}).values():
+        if not _cuadra_con(quien, conocida.get("nombre", ""),
+                          conocida.get("apellido1", "")):
+            continue
+        anio_fila, anio_conocido = fila.get("anio"), conocida.get("anio")
+        if anio_fila and anio_conocido and abs(int(anio_fila)
+                                              - int(anio_conocido)) > 25:
+            continue
+        return conocida
+    return {}
+
+
+def _cita_de_fila(fila: dict) -> str:
+    """La cita del archivo de una fila (fondo, signatura, folio)."""
+    return ", ".join(trozo for trozo in (
+        f"fondo {fila.get('fondo')}" if fila.get("fondo") else "",
+        f"sig. {fila.get('signatura')}" if fila.get("signatura") else "",
+        f"folio {fila.get('folio')}" if fila.get("folio") else "") if trozo)
+
+
+def padres_de_fila(fila: dict) -> list[dict]:
+    """Los padres que DECLARA el registro (padre y madre, si constan)."""
+    padres = []
+    for rol, etiqueta in (("padre", "padre"), ("madre", "madre")):
+        persona = _persona_de(fila, rol)
+        if not persona.get("nombre"):
+            continue
+        padres.append({"rol": etiqueta, "nombre": persona.get("nombre", ""),
+                       "apellido1": persona.get("apellido1", ""),
+                       "apellido2": persona.get("apellido2", ""),
+                       "completo": persona.get("completo", "")})
+    return padres
+
+
+def anotar_progenitor(estado: dict, progenitor: dict, de_quien: str,
+                      fila: dict | None = None) -> str | None:
+    """Apunta a un padre/madre que NOMBRA la partida de un conocido.
+
+    Es de los datos más fuertes que hay (lo dice el documento, no un parecido):
+    entra con el sello de la partida. Su año se queda sin saber (lo dirá su
+    propia partida cuando se busque su apellido). Devuelve la clave o None.
+    """
+    nombre = (progenitor.get("nombre") or "").strip()
+    apellido1 = (progenitor.get("apellido1") or "").strip()
+    if not nombre:
+        return None
+    clave = clave_persona(nombre, apellido1)
+    fila = fila or {}
+    if clave not in estado["personas"]:
+        parentesco = (f"{progenitor.get('rol', 'progenitor')} de {de_quien} "
+                      f"— lo dice la partida")
+        cita = _cita_de_fila(fila)
+        estado["personas"][clave] = {
+            "clave": clave,
+            "nombre": nombre, "apellido1": apellido1,
+            "apellido2": (progenitor.get("apellido2") or "").strip(),
+            "anio": None, "fecha": "", "tipo": "", "id": None, "url": "",
+            "parroquia": fila.get("parroquia", ""),
+            "municipio": fila.get("municipio") or fila.get("localidad", ""),
+            "diocesis": fila.get("diocesis", ""),
+            "padres_texto": [], "apellidos": [a for a in (apellido1,
+                                                          progenitor.get("apellido2"))
+                                              if apellido_util(a or "")],
+            # OJO: el enlace de la ficha NO se hereda de la partida del hijo
+            # (ese enlace es de OTRO registro): se apunta en la cita dónde se
+            # le nombra, y su propia ficha se pondrá cuando se encuentre.
+            "conyuge": "", "folio": "", "signatura": "",
+            "cita": (f"se nombra en la partida de {de_quien}"
+                     + (f" ({cita})" if cita else "")),
+            "parentesco": parentesco, "papel": PAPEL_LINEA, "de_quien": de_quien,
+            "nivel": SELLO_PARTIDA, "datos": 2,
+            "motivos": [f"la partida de {de_quien} lo nombra como "
+                        f"{progenitor.get('rol', 'progenitor')}"],
+            "confianza_ia": "", "ficha_url": "",
+            "ficha_campos": {}, "origen": "partida de un hijo/a",
+        }
+    for apellido in (apellido1, progenitor.get("apellido2")):
+        if apellido_util(apellido or ""):
+            apuntar_apellido(estado, apellido, f"padre/madre de {de_quien}")
     return clave
 
 
@@ -508,38 +676,28 @@ def resumen(estado: dict) -> dict:
 
 # ============================== LA IA ======================================
 
-SYSTEM_PROMPT = """Eres el archivero del proyecto de genealogía de la familia \
-Merillas. Trabajas SOLO con las filas del índice de registros sacramentales \
+SYSTEM_PROMPT = """Eres el archivero de un proyecto de genealogía (familia \
+Merillas). Solo trabajas con las filas del índice de registros sacramentales \
 del Archivo Histórico Diocesano de Vitoria (Álava, 1481-1900) que se te dan. \
-No conoces ni usas ninguna otra fuente.
+No conoces ninguna otra fuente.
 
-Te doy dos cosas: (1) la familia que ya está identificada y (2) las filas que \
-ha devuelto el buscador al pedir un apellido.
+Te doy la familia ya identificada y unas filas numeradas del buscador.
 
-Tu trabajo:
-- Decir CUÁLES de esas filas son familiares y de quién son. Para señalarlas usa \
-el NÚMERO que aparece delante de cada fila. NUNCA escribas nombres que no \
-estén en las filas que te he dado.
-- Proponer qué APELLIDOS buscar después (los que aparecen en las filas dadas, \
-sobre todo los de las MADRES: son las líneas de las mujeres y son la mitad \
-del árbol).
+Devuelve SOLO un JSON, sin explicaciones y sin texto antes ni después:
+{"parientes": [{"fila": 3, "parentesco": "hermano", "de_quien": "Victor", \
+"confianza": "alta", "por_que": "mismos padres y años seguidos"}], \
+"apellidos": ["Dopico"], "por_que_esos_apellidos": "es la madre"}
 
-Cómo decidir:
-- Compartir un apellido NO basta: hay miles de homónimos. Una fila es de la \
-familia si comparte apellidos y además el año y el pueblo cuadran.
-- Es MUCHO más fuerte (y lo más importante) que la fila NOMBRE como padre, \
-madre o cónyuge a alguien que ya está identificado: eso lo dice el documento.
-- Los hermanos comparten los DOS apellidos, son del mismo pueblo y de años \
-parecidos (una familia suele bautizar un hijo cada 2-3 años).
-- Los padres de un conocido no se adivinan: aparecen NOMBRADOS en la fila de \
-ese conocido.
-- Si una fila no tiene nada que ver, NO la incluyas.
-- "confianza": alta (lo dice la fila, o cuadran apellidos + año + pueblo), \
-media (dos cosas), baja (solo comparte un apellido).
-- "de_quien": con qué persona de la familia emparentada está (su nombre).
-- "parentesco": hermano/a, padre, madre, tío/a, abuelo/a, primo/a, hijo/a, \
-cónyuge, suegro/a (lo que se pueda deducir de las filas; si no está claro, \
-"familiar sin parentesco claro")."""
+Reglas para decidir:
+- Una fila es de la familia sobre todo si NOMBRA como padre, madre o cónyuge a \
+alguien que ya está identificado: eso lo dice el documento.
+- Compartir un apellido NO basta (hay miles de homónimos): hacen falta también \
+el año y el pueblo.
+- Los hermanos comparten los dos apellidos, el pueblo y años parecidos (una \
+familia bautiza un hijo cada 2-3 años).
+- En "apellidos" pon solo apellidos que APAREZCAN en las filas que te he dado \
+(sobre todo los de las madres: son las líneas de las mujeres). Como mucho tres.
+- "confianza": alta / media / baja. Si una fila no tiene que ver, no la pongas."""
 
 
 JSON_SCHEMA_FAMILIA: dict = {
@@ -574,20 +732,22 @@ def preguntar_ia(estado: dict, lote: list[dict], apellido: str = "",
                  modelo: str = "") -> dict:
     """Una llamada a la IA con la familia conocida y el lote de filas.
 
+    Se pide JSON EN EL PROMPT (sin `response_format`): medido el 2026-09-20,
+    con el esquema estricto y un lote largo el modelo devolvía respuestas
+    VACÍAS (y una llamada se fue a 90 s). La respuesta es corta y sencilla:
+    pedir el JSON en el texto funciona y es más rápido.
+
     Se importa `chat_json` AQUÍ (perezoso) para que los tests puedan parchear
     `utils.llm.chat_json` sin red, y para que importar este módulo no exija
     `.env`.
     """
     from utils.llm import chat_json
     usuario = (f"{perfil_para_la_ia(estado)}\n\n"
-               f"FILAS DEL BUSCADOR (búsqueda por el apellido "
-               f"'{apellido}' en el índice del AHDV, Álava 1481-1900):\n"
-               f"{lineas_para_la_ia(lote)}\n\n"
-               f"Devuelve solo el JSON: qué filas son familiares (por su "
-               f"número) y qué apellidos hay que buscar después.")
-    resp = chat_json(modelo or MODELO_FASE2, SYSTEM_PROMPT, usuario,
-                     json_schema=JSON_SCHEMA_FAMILIA,
-                     schema_name="familiares_archivo",
+               f"FILAS DEL BUSCADOR (apellido «{apellido}», índice del AHDV, "
+               f"Álava 1481-1900):\n{lineas_para_la_ia(lote)}\n\n"
+               f"Devuelve SOLO el JSON: qué filas son familiares (por su "
+               f"número) y qué apellidos buscar después.")
+    resp = chat_json(modelo or AGENTE_MODELO, SYSTEM_PROMPT, usuario,
                      max_tokens=AGENTE_MAX_TOKENS_SALIDA, intentos=2)
     return resp if isinstance(resp, dict) else {}
 
@@ -715,6 +875,41 @@ def investigar(estado: dict, buscar, abrir_ficha=None, preguntar=None, *,
         # (y aunque la IA falle). Los que solo "cuadran" (2 datos) los decide la
         # IA: si no, una búsqueda por apellido llenaría la lista de homónimos.
         for nivel_fila, fila in candidatas:
+            # (a) ¿La fila ES alguien que ya sabíamos (del árbol)? Entonces su
+            # partida no solo lo confirma: dice de quién es hijo. Los padres
+            # entran como identificados y su apellido va a la cola. Así se sube
+            # sin depender de la IA: Víctor (árbol ~1895) → su partida de 1885
+            # → Eusebio y Leocadia dentro.
+            conocida = es_persona_conocida(fila, estado)
+            if conocida:
+                quien = _persona_de(fila, "persona")
+                confirmada_antes = conocida.get("nivel") != NIVEL_ARBOL
+                clave_conocida = (conocida.get("clave")
+                                  or clave_persona(conocida.get("nombre", ""),
+                                                   conocida.get("apellido1", ""),
+                                                   conocida.get("anio")))
+                anotar_persona(
+                    estado, fila,
+                    parentesco=(f"{conocida.get('nombre')} "
+                                f"{conocida.get('apellido1')}: el índice "
+                                f"confirma su partida"),
+                    nivel=SELLO_PARTIDA, datos=nivel_fila[1],
+                    motivos=list(nivel_fila[2])
+                    + ["ya estaba en tu árbol: el índice lo confirma"],
+                    papel=PAPEL_LINEA, ficha=fila.get("ficha"),
+                    clave=clave_conocida)
+                if not confirmada_antes:
+                    di(f"   = {quien.get('nombre')} {quien.get('apellido1')} "
+                       f"({fila.get('anio')}, {fila.get('parroquia')}) · ya lo "
+                       f"tenías en el árbol: el índice lo confirma")
+                for progenitor in padres_de_fila(fila):
+                    clave_p = anotar_progenitor(
+                        estado, progenitor,
+                        f"{quien.get('nombre')} {quien.get('apellido1')}", fila)
+                    if clave_p and not confirmada_antes:
+                        di(f"   + {progenitor.get('completo')} · "
+                           f"{progenitor.get('rol')} de "
+                           f"{quien.get('nombre')} (lo dice la partida)")
             if nivel_fila[0] != SELLO_PARTIDA:
                 continue
             enlace, etiqueta = enlaza_con_la_familia(fila, estado)
@@ -792,14 +987,16 @@ def _apellidos_de_ficha(datos: dict) -> list[str]:
 
 def _llamar_a_la_ia(estado: dict, lote: list[dict], apellido: str, preguntar,
                     di, filas_por_llamada: int, ficha_ap: dict) -> None:
-    """Una llamada a la IA por apellido (con el lote recortado a lo que se le
-    puede enseñar de una vez)."""
+    """Una llamada a la IA por apellido, con el lote RECORTADO y ordenado por
+    interés (ver `lote_para_la_ia`). Si el modelo no contesta, se reintenta una
+    vez con las primeras filas: a una lista corta contesta casi siempre."""
     from utils.llm import GASTO, PresupuestoExcedido
-    recorte = lote[:filas_por_llamada]
+    recorte = lote_para_la_ia(lote, estado, filas_por_llamada)
     if len(lote) > len(recorte):
         di(f"   (el lote tenía {len(lote)} filas: se le enseñan las "
            f"{len(recorte)} más cercanas a la familia)")
     coste_antes = GASTO.coste
+    respuesta = None
     try:
         respuesta = preguntar(estado, recorte, apellido)
     except PresupuestoExcedido as e:
@@ -807,11 +1004,20 @@ def _llamar_a_la_ia(estado: dict, lote: list[dict], apellido: str, preguntar,
         di(f"Presupuesto agotado ({e}): se para y se guarda lo hecho.")
         raise
     except Exception as e:              # noqa: BLE001 (red/LLM caído)
-        estado.setdefault("notas", []).append(
-            f"La IA falló con «{apellido}»: {str(e)[:120]}")
-        di(f"   [!] la IA no contestó con «{apellido}»: {str(e)[:90]} "
-           f"(las filas quedan guardadas para otra tanda)")
-        return
+        di(f"   [!] la IA no contestó con «{apellido}» ({str(e)[:80]}); se "
+           f"reintenta con las primeras filas")
+        try:
+            recorte = recorte[:6]
+            respuesta = preguntar(estado, recorte, apellido)
+        except PresupuestoExcedido as e2:
+            estado.setdefault("notas", []).append(f"Presupuesto agotado: {e2}")
+            raise
+        except Exception as e2:         # noqa: BLE001
+            estado.setdefault("notas", []).append(
+                f"La IA falló con «{apellido}»: {str(e2)[:120]}")
+            di(f"   [!] la IA tampoco contestó a la lista corta: "
+               f"{str(e2)[:90]} (las filas quedan guardadas para otra tanda)")
+            return
     estado["llamadas_llm"] += 1
     estado["coste_llm"] = round(estado.get("coste_llm", 0.0)
                                 + (GASTO.coste - coste_antes), 6)

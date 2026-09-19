@@ -174,7 +174,9 @@ def test_se_busca_por_el_primer_apellido_y_se_abren_las_fichas():
                                       "Leocadia Dopico Guzman"]
     assert "F006.329" in victor["cita"] and "f.195 r." in victor["cita"]
     assert victor["ficha_url"].endswith("id_6210597")
-    assert victor["nivel"] == agente.SELLO_RESERVAS
+    # La fila ES el bisabuelo que ya tenía el árbol ("hacia 1895"): el índice
+    # lo confirma, así que el sello es el más fuerte.
+    assert victor["nivel"] == agente.SELLO_PARTIDA
 
 
 def test_los_apellidos_de_las_madres_tambien_se_buscan():
@@ -255,8 +257,13 @@ def test_la_ia_no_puede_inventar_filas_ni_apellidos():
 
     guardados = [p for p in estado["personas"].values()
                  if p.get("nivel") != agente.NIVEL_ARBOL]
-    assert len(guardados) == 1                     # la fila 99 no existe: fuera
-    assert guardados[0]["nombre"] == "Victor"      # el nombre sale de la FILA
+    # Víctor (lo confirma la partida) y sus padres, que nombra el documento.
+    # La fila 99 no existe: la propuesta de la IA se tira.
+    assert len(guardados) == 3
+    victor = next(p for p in guardados if p.get("nombre") == "Victor")
+    assert victor["nombre"] == "Victor"            # el nombre sale de la FILA
+    assert len([p for p in estado["personas"].values()
+                if p.get("nombre") == "Victor"]) == 1     # no se duplica
     assert not any("Fernandezz" in (p.get("nombre") or "")
                    for p in estado["personas"].values())
     cola = [estado["apellidos"][c]["apellido"] for c in estado["cola"]]
@@ -281,6 +288,73 @@ def test_la_ia_no_puede_subir_un_pista_a_compatible():
     primo = next(p for p in estado["personas"].values() if p.get("nombre") == "Primo")
     assert primo["nivel"] == agente.SELLO_PISTA
     assert any("la IA" in m for m in primo["motivos"])   # queda su razón, pero no manda
+
+
+# ========= 4b. LO QUE YA SABÍAS: LA PARTIDA MANDA SOBRE EL ÁRBOL ===========
+
+def test_la_partida_confirma_y_data_a_quien_ya_estaba_en_el_arbol():
+    """El caso que dejaba la lista a cero: la fila ES tu bisabuelo del árbol
+    (que tenías "hacia 1895"). El índice confirma su partida (1885), se sustituye
+    la estimación por el dato real, y sus PADRES entran como identificados porque
+    los nombra el documento. Todo esto SIN IA."""
+    estado = _estado_con_victor()          # Víctor ~1895, del árbol
+    agente.apuntar_apellido(estado, "Saenz de Navarrete", "la línea")
+    buscador = BuscadorFalso({"saenz de navarrete": {"bautismo": [VICTOR_1885]}})
+
+    def ia_muda(*args, **kwargs):
+        return {}
+
+    agente.investigar(estado, buscador, None, ia_muda, max_llm=1,
+                      max_consultas=2, avisar=lambda t: None, pausa=(0, 0))
+
+    victor = next(p for p in estado["personas"].values()
+                  if p.get("nombre") == "Victor")
+    assert victor["anio"] == 1885                 # el documento manda
+    assert "F006.329" in victor["cita"] and "f.195 r." in victor["cita"]
+    assert victor["nivel"] == agente.SELLO_PARTIDA
+    assert victor["parentesco"] == "bisabuelo (del árbol)"   # lo que ya sabías
+    # Y los padres, nombrados por la partida, entran a la lista
+    nombres = {p["nombre"]: p for p in estado["personas"].values()}
+    assert "Eusebio" in nombres and "Leocadia" in nombres
+    assert nombres["Eusebio"]["nivel"] == agente.SELLO_PARTIDA
+    assert nombres["Eusebio"]["parentesco"].startswith("padre de Victor")
+    # El enlace de la ficha NO se hereda de la partida del hijo (es otro
+    # registro): solo se apunta dónde se le nombra.
+    assert nombres["Eusebio"]["ficha_url"] == ""
+    assert "se nombra en la partida de Victor" in nombres["Eusebio"]["cita"]
+    assert "Dopico" in [estado["apellidos"][c]["apellido"]
+                        for c in estado["cola"]]          # Leocadia → su línea
+    assert "Tellaeche" in [estado["apellidos"][c]["apellido"]
+                           for c in estado["cola"]]       # Eusebio → su línea
+
+
+def test_a_la_ia_se_le_manda_un_lote_corto_y_ordenado():
+    """Con 60 filas el modelo tardaba 90 s y volvía vacío. Se le manda un lote
+    corto: primero lo que toca a la familia."""
+    estado = _estado_con_victor()          # año 1895
+    ruido = [_fila("Otro", "Saenz de Navarrete", "", 1700 + i, id_=200 + i,
+                   parroquia="Otra", municipio="Vitoria", localidad="Vitoria")
+             for i in range(40)]
+    lote = ruido + [VICTOR_1885]
+    recorte = agente.lote_para_la_ia(lote, estado, 5)
+    assert len(recorte) == 5
+    assert recorte[0] is VICTOR_1885       # el que toca a la familia, primero
+
+
+def test_la_ia_solo_puede_proponer_apellidos_de_las_filas_de_la_familia():
+    """La IA proponía apellidos de familias homónimas (una docena de una vez):
+    solo valen los que aparecen en las filas que ha dado por familiares o en las
+    que tocan a la familia, y como mucho tres."""
+    estado = _estado_con_victor()
+    lote = [VICTOR_1885, HOMONIMO_1620]
+    respuesta = {"parientes": [{"fila": 1, "parentesco": "bisabuelo",
+                                "de_quien": "Victor", "confianza": "alta",
+                                "por_que": "cuadra"}],
+                 "apellidos": ["Dopico", "Tellaeche", "Guzman", "Garcia",
+                               "Saenz de Olano"]}
+    lectura = agente.interpretar_respuesta(respuesta, lote, estado)
+    assert lectura["apellidos"] == ["Dopico", "Tellaeche", "Guzman"]  # y máx. 3
+    assert lectura["descartados"] >= 1
 
 
 # =================== 4. EL SELLO DE ≥2 DATOS (PIEZA PURA) ==================
@@ -433,11 +507,21 @@ def test_el_informe_lista_los_familiares_con_su_cita():
     assert "Eusebio Saenz de Navarrete Tellaeche" in texto  # los padres del registro
     assert "fondo F006.329" in texto and "f.195 r." in texto
     assert "La Purisima" in texto
-    assert "compatible con reservas" in texto
-    assert "Punto de partida: lo que ya sabías" in texto     # el árbol, aparte
+    assert "compatible — lo dice la partida" in texto
     assert "| Saenz de Navarrete | 1 | 1 |" in texto         # la tabla de apellidos
     assert "para seguir la línea de la madre" in texto       # lo que dice la IA
     assert "se ha escrito en el árbol" in texto
+
+
+def test_el_informe_deja_aparte_lo_que_ya_sabias():
+    """Lo que sabías y NO está en el índice (el abuelo de 1927, tu madre…) va en
+    su propio apartado: no se mezcla con lo que ha encontrado el archivo."""
+    estado = _estado_con_victor()
+    estado["personas"]["victor saenz de navarrete::1895"]["nivel"] = (
+        agente.NIVEL_ARBOL)
+    texto = agente.informe(estado)
+    assert "Punto de partida: lo que ya sabías" in texto
+    assert "Familiares en la lista: **0**" in texto
 
 
 def test_el_informe_dice_que_no_toca_el_arbol_y_cuenta_los_topes(tmp_path: Path):

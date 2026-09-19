@@ -1110,8 +1110,30 @@ AGENTE_MAX_LLM = 25                # llamadas a la IA por tanda (es lo que gasta
 AGENTE_MAX_CONSULTAS = 120         # consultas al buscador del archivo (gratis)
 AGENTE_MAX_FICHAS = 40             # fichas abiertas por tanda (gratis, pero red)
 AGENTE_FICHAS_POR_APELLIDO = 4     # fichas como mucho por apellido buscado
-AGENTE_FILAS_POR_LLAMADA = 60      # filas que se le enseñan a la IA de una vez
-AGENTE_MAX_TOKENS_SALIDA = 3000    # techo de salida de la respuesta de la IA
+# CUÁNTAS FILAS SE LE ENSEÑAN A LA IA DE UNA VEZ. Medido el 2026-09-20 con
+# deepseek-v4.1-flash: con 60 filas (~12 KB de prompt) las llamadas TARDABAN
+# 90 s y volvían VACÍAS o con razonamiento en inglés en vez de JSON (3 llamadas
+# fallidas = $0.0204). Con un lote corto y ordenado (primero las filas que
+# tocan a la familia) la tarea es la misma y el modelo no se ahoga.
+AGENTE_FILAS_POR_LLAMADA = 15
+AGENTE_MAX_APELLIDOS_IA = 3        # apellidos nuevos que puede proponer la IA
+# Modelo de la opción 1.3. v4-flash (el de fase 1: "barato y rápido", para
+# filtrar) en vez del v4.1-flash de fase 2: la tarea es CLASIFICAR una lista
+# corta, no extraer campos de un documento. Medido el 2026-09-20 con las mismas
+# filas: v4.1-flash gasta 10.752 caracteres de razonamiento y se queda sin
+# presupuesto (JSON truncado); v4-flash termina con 1.899 tokens. Además el
+# v4-flash cuesta 3,4 veces menos ($0.087/$0.174 por millón).
+AGENTE_MODELO = os.getenv("AGENTE_MODELO", MODELO_FASE1)
+# TECHO DE SALIDA: 4000 tokens NO es capricho. Estos modelos escriben un
+# "razonamiento" largo ANTES del JSON y esos tokens se cobran como salida, así
+# que el presupuesto tiene que cubrir razonamiento + JSON. Medido el 2026-09-20
+# (mismas 15 filas, v4-flash):
+#   max_tokens=1200 -> finish_reason=length, content=92 caracteres (JSON roto)
+#   max_tokens=3000 -> finish_reason=stop,   content=889 caracteres (JSON entero)
+#   max_tokens=4000 -> margen de sobra (coste de la llamada: ~$0.0007)
+# Con v4.1-flash ni con 3000 llega (10.752 caracteres de razonamiento): por eso
+# el modelo de esta opción es el v4-flash.
+AGENTE_MAX_TOKENS_SALIDA = 4000
 AGENTE_VENTANA_MARGEN = (110, 50)  # ventana: (el más antiguo − 110, el más nuevo + 50)
 #                 ^^^^^^^^^^^^ POR QUÉ ESTOS NÚMEROS (fallo detectado en vivo):
 #                 -110 cubre tres generaciones por encima (padres, abuelos,

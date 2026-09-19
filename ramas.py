@@ -220,7 +220,7 @@ def ejecutar_agente(rama: str, base: Path | None = None,
             apellido1=persona.get("apellido_paterno", ""),
             apellido2=persona.get("apellido_materno", ""),
             anio=persona.get("anio"), municipio=persona.get("municipio", ""),
-            parentesco=persona.get("origen", ""))
+            origen=f"tu árbol ({persona.get('origen', '')})")
     for apellido in (ramas.apellidos_de_rama(personas)
                      + list(apellidos_extra or [])):
         if agente.apuntar_apellido(estado, apellido, "la línea de tu madre"):
